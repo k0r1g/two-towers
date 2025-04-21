@@ -1,0 +1,5 @@
+# Core deep‑learning runtime
+torch>=2.2,<3.0     # tested with 2.2.x
+
+# Progress‑bar utility
+tqdm>=4.66.0
