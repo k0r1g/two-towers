@@ -5,6 +5,7 @@
 #download ms_marco dataset
 
 from datasets import load_dataset
+import tokenizer as tk
 
 # Load the default config and split (defaults to split='train' if available)
 dataset = load_dataset("microsoft/ms_marco", 'v1.1')
@@ -47,3 +48,25 @@ for example in train_data:
 print("Total number of positive passages: ", total_pos)
 print("Total number of negative passages: ", total_neg)
 
+import torch
+
+torch.save(query2passage, 'query2passage.pt')
+print("Query to passage mapping saved")
+torch.save(pos_passages, 'pos_passages.pt')
+print("Positive passages saved")
+torch.save(neg_passages, 'neg_passages.pt')
+print("Negative passages saved")
+corpus_list = []
+for example in train_data:
+    passages = example['passages']
+    ps = np.array(passages['passage_text']) #['apple', 'banana', 'cherry', 'date', 'elderberry']
+    corpus_list.extend(ps)
+print("finished creating corpus_list")
+corpus = ''.join(corpus_list)
+print(corpus[:1000])
+#tokenise the corpus
+word_to_id, id_to_word, filtered_corpus=tk.tokenizer(corpus, top_k=30000)
+torch.save(filtered_corpus, 'filtered_corpus.pt')
+print("Filtered corpus saved")
+vocab={word for word in word_to_id.keys()}
+print("Vocabulary size: ", len(vocab))
