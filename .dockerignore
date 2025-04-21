@@ -1,0 +1,6 @@
+.git
+notebooks
+data
+__pycache__
+*.pt
+*.ckpt 

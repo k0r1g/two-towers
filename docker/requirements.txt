@@ -1,0 +1,31 @@
+# --- Deep‑learning core ---
+torch==2.2.1+cu121         # ships with CUDA 12.1 runtime
+torchvision==0.17.1+cu121
+torchaudio==2.2.1+cu121
+
+# --- NLP + embeddings ---
+gensim==4.3.2
+torchtext==0.17.1
+sentencepiece==0.1.99
+
+# --- Training utilities ---
+numpy==1.26.4
+pandas==2.2.2
+scikit-learn==1.5.0
+tqdm==4.66.3
+hydra-core==1.4.0
+omegaconf==2.4.0
+torchmetrics==1.4.1
+
+# --- Experiment tracking / viz ---
+wandb==0.17.0
+mlflow==2.11.0
+matplotlib==3.9.0
+umap-learn==0.5.6
+
+# --- Notebook goodies ---
+jupyterlab==4.1.6
+ipywidgets==8.1.2
+
+# --- Optional GPU info helper ---
+nvidia-ml-py3==7.352.0 
