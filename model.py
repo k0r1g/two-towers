@@ -26,17 +26,21 @@ class DocTower(torch.nn.Module):
 #
 #
 #
-class CBOW(torch.nn.Module):
-  def __init__(self, voc, emb):
-    super().__init__()
-    self.emb = torch.nn.Embedding(num_embeddings=voc, embedding_dim=emb)
-    self.ffw = torch.nn.Linear(in_features=emb, out_features=voc, bias=False)
 
-  def forward(self, inpt):
-    emb = self.emb(inpt)
-    emb = emb.mean(dim=1)
-    out = self.ffw(emb)
-    return out
+
+
+class CBOW(torch.nn.Module):
+    def __init__(self, vocab_size, embed_dim):
+        super().__init__()
+        self.emb = torch.nn.Embedding(num_embeddings=vocab_size, embedding_dim=embed_dim)
+        self.ffw = torch.nn.Linear(in_features=embed_dim, out_features=vocab_size, bias=False)
+
+    def forward(self, x):
+        emb = self.emb(x)               # (batch_size, context_window, embed_dim)
+        pooled = emb.mean(dim=1)        # (batch_size, embed_dim)
+        out = self.ffw(pooled)          # (batch_size, vocab_size)
+        return out
+
   
 
 #

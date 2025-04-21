@@ -1,0 +1,72 @@
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Weights & Biases
+wandb/
+
+# Model checkpoints and saved models
+checkpoints/
+*.pth
+*.pt
+*.bin
+*.onnx
+
+# Pickle files (these are often large)
+*.pkl
+
+# Environment variables (containing API keys)
+.env
+.env.*
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Data files (customize as needed)
+data/
+datasets/
+*.csv
+*.tsv
+*.json
+*.jsonl
+*.h5
+*.hdf5
+
+# Documentation
+docs/_build/
+
+# Any backup files
+*.bak 
