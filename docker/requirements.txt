@@ -1,7 +1,4 @@
 # --- Deep‑learning core ---
-torch==2.2.1+cu121         # ships with CUDA 12.1 runtime
-torchvision==0.17.1+cu121
-torchaudio==2.2.1+cu121
 
 # --- NLP + embeddings ---
 gensim==4.3.2
@@ -13,8 +10,8 @@ numpy==1.26.4
 pandas==2.2.2
 scikit-learn==1.5.0
 tqdm==4.66.3
-hydra-core==1.4.0
-omegaconf==2.4.0
+hydra-core==1.3.2
+omegaconf==2.3.0
 torchmetrics==1.4.1
 
 # --- Experiment tracking / viz ---

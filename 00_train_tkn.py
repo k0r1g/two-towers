@@ -1,3 +1,9 @@
+'''
+We're going to start doing one full loop (tokeniser, w2v, dual encoder) with just the first 1000 rows. Then we'll do the full loop. 
+
+'''
+
+
 
 # ---------- Step 1: Tokenise the data ----------
 

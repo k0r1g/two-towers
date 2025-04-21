@@ -10,6 +10,11 @@ RUN apt-get update && \
 # 2️⃣  Copy Python dependency list and install it
 WORKDIR /workspace
 COPY docker/requirements.txt .
+
+# Install PyTorch components first using the specific index URL for CUDA 12.1
+RUN pip install --no-cache-dir torch==2.2.1+cu121 torchvision==0.17.1+cu121 torchaudio==2.2.1+cu121 --index-url https://download.pytorch.org/whl/cu121
+
+# Install the rest of the requirements
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 3️⃣  Expose common ports
