@@ -24,7 +24,7 @@ The script will:
   • train the model with in‑batch negative sampling
   • write `model.pt` – ready for loading and inference
 
-Tested with Python 3.11 and PyTorch 2.2.
+Tested with Python 3.11 and PyTorch 2.2.
 """
 
 #
@@ -57,6 +57,8 @@ class Pairs(torch.utils.data.Dataset):
     raw = [l.rstrip('\n').split('\t') for l in open(path)]
     q, d, y = zip(*raw)
     self.vocab = vocab if vocab else CharVocab(q+d)
+    self.query_texts = q  # Store original query texts
+    self.doc_texts = d    # Store original document texts
     self.queries = [self.truncate(self.vocab.encode(t), max_len) for t in q]
     self.docs    = [self.truncate(self.vocab.encode(t), max_len) for t in d]
     self.labels  = [int(i) for i in y]
@@ -124,9 +126,12 @@ def train(model, data, *, epochs=3, lr=1e-3, bs=256, device='cpu'):
 # Simple retrieval demo
 #
 @torch.no_grad()
-def retrieve(model, query, docs, vocab, topk=5, device='cpu'):
-  q = torch.tensor([vocab.encode(query)], device=device)
-  d = torch.tensor([vocab.encode(t) for t in docs], device=device)
+def retrieve(model, query, docs, vocab, topk=5, device='cpu', max_len=64):
+  # Apply the same truncate/pad logic that's used in dataset preparation
+  def truncate(seq, n): return seq[:n] + [0]*(n-len(seq)) if len(seq)<n else seq[:n]
+  
+  q = torch.tensor([truncate(vocab.encode(query), max_len)], device=device)
+  d = torch.tensor([truncate(vocab.encode(t), max_len) for t in docs], device=device)
   qv, dv = model.q(q), model.d(d)
   scores = (qv @ dv.t()).squeeze(0)   # (N,)
   idx = scores.argsort(descending=True)[:topk]
@@ -153,7 +158,9 @@ def main():
 
   # quick sanity check
   print('\nSample retrieval:')
-  doc_texts = [d for _,d,_ in random.sample(list(zip(ds.queries, ds.docs, ds.labels)), 20)]
+  sample_size = min(20, len(list(zip(ds.queries, ds.docs, ds.labels))))
+  doc_indices = random.sample(range(len(ds.doc_texts)), sample_size)
+  doc_texts = [ds.doc_texts[i] for i in doc_indices]
   query = input('Type a query: ')
   results = retrieve(model, query, doc_texts, ds.vocab)
   for txt,score in results: print(f'  {score:+.3f} | {txt[:80]}...')
