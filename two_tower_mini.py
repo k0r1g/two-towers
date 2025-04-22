@@ -294,18 +294,36 @@ class TwoTower(nn.Module):
 #
 # Training utilities
 #
+def contrastive_triplet_loss(q_emb: torch.Tensor,
+                             d_pos_emb: torch.Tensor,
+                             d_neg_emb: torch.Tensor,
+                             margin: float = 0.2) -> torch.Tensor:
+    """
+    q_emb, d_pos_emb, d_neg_emb: (B, H) tensors
+    margin: the m in max(0, m - cos(q,d+) + cos(q,d-))
+    """
+    # cosine similarities: (B,)
+    sim_pos = F.cosine_similarity(q_emb, d_pos_emb, dim=1)
+    sim_neg = F.cosine_similarity(q_emb, d_neg_emb, dim=1)
+
+    # hinge‑margin loss per example
+    per_sample_loss = F.relu(margin - sim_pos + sim_neg)
+
+    # average over the batch
+    return per_sample_loss.mean()
+
 def train(model, dataset, *, epochs=3, learning_rate=1e-3, batch_size=256, device='cpu', use_wandb=False):
   logger.info(f"Training model for {epochs} epochs with lr={learning_rate}, batch_size={batch_size}, device={device}")
   
   model.to(device)
   optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
   data_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
-  loss_function = nn.TripletMarginLoss(margin=0.2)
+  margin = 0.2
   
   logger.info(f"Dataset size: {len(dataset)} triplets")
   logger.info(f"Batch size: {batch_size}, Number of batches: {len(data_loader)}")
   logger.info(f"Optimizer: {optimizer}")
-  logger.info(f"Loss function: {loss_function} with margin={loss_function.margin}")
+  logger.info(f"Loss function: contrastive_triplet_loss with margin={margin}")
 
   # Log model architecture to wandb if enabled
   if use_wandb:
@@ -354,8 +372,8 @@ def train(model, dataset, *, epochs=3, learning_rate=1e-3, batch_size=256, devic
         log_tensor_info(positive_doc_vectors, "positive_doc_vectors")
         log_tensor_info(negative_doc_vectors, "negative_doc_vectors")
       
-      # Compute loss
-      loss = loss_function(query_vectors, positive_doc_vectors, negative_doc_vectors)
+      # Compute loss using custom contrastive triplet loss
+      loss = contrastive_triplet_loss(query_vectors, positive_doc_vectors, negative_doc_vectors, margin)
       
       # Backward pass and optimization
       backward_start = time.time()
