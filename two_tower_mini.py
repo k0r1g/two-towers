@@ -30,7 +30,7 @@ Tested with Python 3.11 and PyTorch 2.2.
 #
 #
 #
-import argparse, collections, random, pickle, math, os, sys, time
+import argparse, collections, random, pickle, math, os, sys, time, datetime
 import torch, torch.nn.functional as F
 from torch import nn
 from tqdm import tqdm
@@ -75,6 +75,9 @@ def log_tensor_info(tensor, name="tensor"):
             logger.info(f"{name} sample: {tensor[:3]} ... {tensor[-3:]}")
     else:
         logger.info(f"{name}: {tensor}")
+
+# Ensure checkpoints directory exists
+os.makedirs('checkpoints', exist_ok=True)
 
 #
 # Dataset & tokeniser
@@ -446,14 +449,46 @@ def train(model, dataset, *, epochs=3, learning_rate=1e-3, batch_size=256, devic
     if epoch_loss < best_loss:
       best_loss = epoch_loss
       logger.info(f"New best model with loss: {best_loss:.6f}")
+      
+      # Create timestamped filename
+      timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+      checkpoint_name = f"two_tower_{timestamp}_epoch{epoch}.pt"
+      checkpoint_path = os.path.join("checkpoints", checkpoint_name)
+      
+      # Save model checkpoint
       torch.save({
         'model': model.state_dict(),
         'vocab': dataset.vocab.string_to_index,
         'epoch': epoch,
-        'loss': best_loss
-      }, 'best_model.pt')
+        'loss': best_loss,
+        'timestamp': timestamp
+      }, checkpoint_path)
+      
+      # Also save as best_model.pt for easy reference
+      best_model_path = os.path.join("checkpoints", "best_model.pt")
+      torch.save({
+        'model': model.state_dict(),
+        'vocab': dataset.vocab.string_to_index,
+        'epoch': epoch,
+        'loss': best_loss,
+        'timestamp': timestamp
+      }, best_model_path)
+      
+      logger.info(f"Saved checkpoint to {checkpoint_path} and {best_model_path}")
+      
+      # Log as wandb artifact if enabled
       if use_wandb:
-        wandb.save('best_model.pt')
+        artifact = wandb.Artifact(
+            name=f"two-tower-model", 
+            type="model",
+            description=f"Two-Tower model from epoch {epoch} with loss {best_loss:.6f}"
+        )
+        artifact.add_file(checkpoint_path)
+        
+        # Log the artifact to W&B
+        run = wandb.run
+        run.log_artifact(artifact, aliases=["latest", "best"])
+        logger.info(f"Logged model artifact to Weights & Biases")
   
   logger.info(f"Training completed. Best loss: {best_loss:.6f}")
   return model
