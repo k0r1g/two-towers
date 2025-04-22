@@ -424,7 +424,26 @@ def train(model, dataset, *, epochs=3, learning_rate=1e-3, batch_size=256, devic
           'train/pos_similarity': pos_similarity,
           'train/neg_similarity': neg_similarity,
           'train/similarity_diff': similarity_diff,
+          'performance/batch_time': batch_time,
+          'performance/forward_time': forward_time,
+          'performance/backward_time': backward_time,
+          'performance/samples_per_second': len(queries) / batch_time,
         })
+      
+        # Log gradient norms periodically (every 10 batches to avoid slowdown)
+        if batch_idx % 10 == 0:
+          # Compute gradient norms
+          total_norm = 0
+          for p in model.parameters():
+            if p.grad is not None:
+              param_norm = p.grad.detach().data.norm(2)
+              total_norm += param_norm.item() ** 2
+          total_norm = total_norm ** 0.5
+          
+          wandb.log({
+            'batch': epoch * len(data_loader) + batch_idx,
+            'gradients/total_norm': total_norm,
+          })
     
     # Calculate epoch metrics
     epoch_loss = total_loss / sample_count
@@ -605,9 +624,34 @@ def main():
   
   # Log dataset info to wandb if enabled
   if args.wandb:
+    # Log dataset and model architecture details
     wandb.config.update({
       'vocab_size': len(dataset.vocab),
       'triplets_count': len(dataset.triplets),
+      'model': {
+        'embedding_dim': 64,  # Default value, update if changed
+        'hidden_dim': 128,    # Default value, update if changed
+        'query_tower_params': sum(p.numel() for p in model.query_tower.parameters()),
+        'doc_tower_params': sum(p.numel() for p in model.document_tower.parameters()),
+        'total_params': sum(p.numel() for p in model.parameters()),
+      },
+      'hardware': {
+        'device': args.device,
+        'cuda_available': torch.cuda.is_available(),
+        'cuda_device_count': torch.cuda.device_count() if torch.cuda.is_available() else 0,
+        'cuda_device_name': torch.cuda.get_device_name(0) if torch.cuda.is_available() else "N/A",
+      },
+    })
+    
+    # Log example data samples
+    example_query = dataset.query_texts[0] if dataset.query_texts else ""
+    example_pos_doc = dataset.positive_doc_texts[0] if dataset.positive_doc_texts else ""
+    example_neg_doc = dataset.negative_doc_texts[0] if dataset.negative_doc_texts else ""
+    
+    wandb.log({
+      "examples/query": wandb.Html(f"<p>{example_query}</p>"),
+      "examples/positive_doc": wandb.Html(f"<p>{example_pos_doc[:200]}...</p>"),
+      "examples/negative_doc": wandb.Html(f"<p>{example_neg_doc[:200]}...</p>"),
     })
   
   # Train model
@@ -650,6 +694,14 @@ def main():
   for i, (document_text, score) in enumerate(results):
     print(f"  {i+1}. {score:+.3f} | {document_text[:80]}...")
     
+  # Log retrieval results to wandb if enabled
+  if args.wandb and results:
+    retrieval_table = wandb.Table(columns=["Rank", "Score", "Document"])
+    for i, (document_text, score) in enumerate(results):
+      retrieval_table.add_data(i+1, score, document_text[:200] + "...")
+    
+    wandb.log({"retrieval_results": retrieval_table})
+
   # Close wandb run if enabled
   if args.wandb:
     logger.info("Finishing wandb run")
