@@ -21,7 +21,7 @@ where *label* is 1 for a relevant (positive) pair and 0 for a random
 
 The script will:
   • build a character‑level vocabulary (easy to inspect)
-  • train the model with in‑batch negative sampling
+  • train the model with triplet margin loss
   • write `model.pt` – ready for loading and inference
 
 Tested with Python 3.11 and PyTorch 2.2.
@@ -34,7 +34,47 @@ import argparse, collections, random, pickle, math, os, sys, time
 import torch, torch.nn.functional as F
 from torch import nn
 from tqdm import tqdm
+import pandas as pd
+import wandb
+from dotenv import load_dotenv
+import logging
+import json
+from pprint import pformat
+from typing import Dict, List, Tuple, Any, Optional
 
+# Load environment variables from .env file
+load_dotenv()
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('two_tower.log', mode='w')
+    ]
+)
+logger = logging.getLogger('two_tower')
+
+# Helper function to log tensor info
+def log_tensor_info(tensor, name="tensor"):
+    """Log helpful information about tensors"""
+    if isinstance(tensor, torch.Tensor):
+        logger.info(f"{name} shape: {tensor.shape}, dtype: {tensor.dtype}, device: {tensor.device}")
+        logger.info(f"{name} stats: min={tensor.min().item():.4f}, max={tensor.max().item():.4f}, "
+                    f"mean={tensor.float().mean().item():.4f}, std={tensor.float().std().item():.4f}")
+        if tensor.numel() < 10:
+            logger.info(f"{name} full content: {tensor}")
+        else:
+            logger.info(f"{name} sample: {tensor.flatten()[:5].tolist()} ... {tensor.flatten()[-5:].tolist()}")
+    elif isinstance(tensor, list):
+        logger.info(f"{name} type: list, length: {len(tensor)}")
+        if len(tensor) < 10:
+            logger.info(f"{name} full content: {tensor}")
+        else:
+            logger.info(f"{name} sample: {tensor[:3]} ... {tensor[-3:]}")
+    else:
+        logger.info(f"{name}: {tensor}")
 
 #
 # Dataset & tokeniser
@@ -42,83 +82,362 @@ from tqdm import tqdm
 class CharVocab:
   """Character to integer lookup tables."""
   def __init__(self, texts):
-    chars = sorted({c for t in texts for c in t})
-    self.stoi = {c:i+1 for i,c in enumerate(chars)} # 0 = padding
-    self.itos = {i:c for c,i in self.stoi.items()}
+    logger.info(f"Building vocabulary from {len(texts)} texts")
+    logger.info(f"Sample texts: {texts[:3]}")
+    
+    # Get all unique characters
+    chars = sorted({char for text in texts for char in text})
+    logger.info(f"Found {len(chars)} unique characters: {chars[:50]}{'...' if len(chars) > 50 else ''}")
+    
+    self.string_to_index = {char: idx+1 for idx, char in enumerate(chars)} # 0 = padding
+    self.index_to_string = {idx: char for char, idx in self.string_to_index.items()}
+    
+    logger.info(f"Vocabulary size (including padding): {len(self)}")
+    logger.info(f"Sample mappings: {list(self.string_to_index.items())[:5]}")
 
-  def encode(self, text): return [self.stoi.get(c, 0) for c in text]
-  def decode(self, ids):  return ''.join(self.itos.get(i, '?') for i in ids)
-  def __len__(self):      return len(self.stoi) + 1 # + pad
+  def encode(self, text): 
+    encoded = [self.string_to_index.get(char, 0) for char in text]
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(f"Encoded text '{text[:20]}...' to {encoded[:20]}...")
+    return encoded
+    
+  def decode(self, indices):  
+    decoded = ''.join(self.index_to_string.get(idx, '?') for idx in indices)
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(f"Decoded {indices[:20]}... to '{decoded[:20]}...'")
+    return decoded
+    
+  def __len__(self):      
+    return len(self.string_to_index) + 1 # + pad
 
 
-class Pairs(torch.utils.data.Dataset):
-  """<query, doc, label> triples."""
-  def __init__(self, path, vocab=None, max_len=64):
-    raw = [l.rstrip('\n').split('\t') for l in open(path)]
-    q, d, y = zip(*raw)
-    self.vocab = vocab if vocab else CharVocab(q+d)
-    self.query_texts = q  # Store original query texts
-    self.doc_texts = d    # Store original document texts
-    self.queries = [self.truncate(self.vocab.encode(t), max_len) for t in q]
-    self.docs    = [self.truncate(self.vocab.encode(t), max_len) for t in d]
-    self.labels  = [int(i) for i in y]
+class Triplets(torch.utils.data.Dataset):
+  """<query, positive_doc, negative_doc> triplets."""
+  def __init__(self, data_path, vocab=None, max_length=64):
+    logger.info(f"Loading dataset from {data_path}")
+    
+    if data_path.endswith('.parquet'):
+      # Read from parquet
+      logger.info("Reading parquet format data")
+      dataframe = pd.read_parquet(data_path)
+      logger.info(f"Dataframe shape: {dataframe.shape}")
+      logger.info(f"Dataframe columns: {dataframe.columns.tolist()}")
+      logger.info(f"Dataframe sample:\n{dataframe.head(3)}")
+      
+      queries = dataframe['query'].tolist()
+      documents = dataframe['document'].tolist()
+      labels = dataframe['label'].tolist()
+    else:
+      # Legacy TSV format
+      logger.info("Reading TSV format data")
+      raw_lines = [line.rstrip('\n').split('\t') for line in open(data_path)]
+      logger.info(f"Read {len(raw_lines)} lines from TSV file")
+      logger.info(f"Sample raw lines: {raw_lines[:3]}")
+      
+      queries, documents, labels = zip(*raw_lines)
+      labels = [int(label) for label in labels]
+    
+    logger.info(f"Loaded {len(queries)} query-document pairs")
+    logger.info(f"Sample queries: {queries[:3]}")
+    logger.info(f"Sample documents: {[doc[:50] + '...' for doc in documents[:3]]}")
+    logger.info(f"Label distribution: {collections.Counter(labels)}")
+    
+    # Create vocabulary
+    all_texts = queries + documents
+    self.vocab = vocab if vocab else CharVocab(all_texts)
+    
+    # Group queries with positive and negative documents
+    logger.info("Grouping queries with positive and negative documents")
+    query_to_documents = collections.defaultdict(lambda: {'positive': [], 'negative': []})
+    for query, document, label in zip(queries, documents, labels):
+      if label == 1:
+        query_to_documents[query]['positive'].append(document)
+      else:
+        query_to_documents[query]['negative'].append(document)
+    
+    logger.info(f"Created query-document mapping for {len(query_to_documents)} unique queries")
+    
+    # Log sample of query-document mapping
+    sample_queries = list(query_to_documents.keys())[:3]
+    for sample_query in sample_queries:
+        pos_count = len(query_to_documents[sample_query]['positive'])
+        neg_count = len(query_to_documents[sample_query]['negative'])
+        logger.info(f"Query: '{sample_query}' has {pos_count} positive and {neg_count} negative documents")
+        if pos_count > 0:
+            logger.info(f"  Sample positive: '{query_to_documents[sample_query]['positive'][0][:50]}...'")
+        if neg_count > 0:
+            logger.info(f"  Sample negative: '{query_to_documents[sample_query]['negative'][0][:50]}...'")
+    
+    # Create triplets
+    logger.info("Creating query-positive-negative triplets")
+    self.triplets = []
+    queries_with_both = 0
+    
+    for query, docs_dict in query_to_documents.items():
+      if docs_dict['positive'] and docs_dict['negative']:  # Only keep queries with both positive and negative docs
+        queries_with_both += 1
+        for positive_doc in docs_dict['positive']:
+          for negative_doc in docs_dict['negative']:
+            self.triplets.append((query, positive_doc, negative_doc))
+    
+    logger.info(f"Created {len(self.triplets)} triplets from {queries_with_both}/{len(query_to_documents)} unique queries with both pos/neg docs")
+    
+    # Store original texts
+    logger.info("Storing original texts and encoding")
+    self.query_texts = [triplet[0] for triplet in self.triplets]
+    self.positive_doc_texts = [triplet[1] for triplet in self.triplets]
+    self.negative_doc_texts = [triplet[2] for triplet in self.triplets]
+    
+    # Encode texts
+    logger.info(f"Max sequence length: {max_length}")
+    self.encoded_queries = [self.truncate_and_pad(self.vocab.encode(triplet[0]), max_length) for triplet in self.triplets]
+    self.encoded_positive_docs = [self.truncate_and_pad(self.vocab.encode(triplet[1]), max_length) for triplet in self.triplets]
+    self.encoded_negative_docs = [self.truncate_and_pad(self.vocab.encode(triplet[2]), max_length) for triplet in self.triplets]
+    
+    # Log sample triplet
+    if self.triplets:
+        sample_idx = 0
+        logger.info(f"Sample triplet {sample_idx}:")
+        logger.info(f"  Query: '{self.query_texts[sample_idx]}'")
+        logger.info(f"  Encoded query: {self.encoded_queries[sample_idx][:10]}...")
+        logger.info(f"  Positive doc: '{self.positive_doc_texts[sample_idx][:50]}...'")
+        logger.info(f"  Encoded positive: {self.encoded_positive_docs[sample_idx][:10]}...")
+        logger.info(f"  Negative doc: '{self.negative_doc_texts[sample_idx][:50]}...'")
+        logger.info(f"  Encoded negative: {self.encoded_negative_docs[sample_idx][:10]}...")
 
-  def truncate(self, seq, n): return seq[:n] + [0]*(n-len(seq)) if len(seq)<n else seq[:n]
-  def __len__(self): return len(self.labels)
-  def __getitem__(self, i):
-    return (torch.tensor(self.queries[i]), torch.tensor(self.docs[i]), torch.tensor(self.labels[i], dtype=torch.float32))
+  def truncate_and_pad(self, sequence, max_length): 
+    original_len = len(sequence)
+    if len(sequence) < max_length:
+      padded = sequence + [0] * (max_length - len(sequence))
+      if logger.isEnabledFor(logging.DEBUG):
+          logger.debug(f"Padded sequence from length {original_len} to {max_length}")
+      return padded
+    else:
+      truncated = sequence[:max_length]
+      if logger.isEnabledFor(logging.DEBUG):
+          logger.debug(f"Truncated sequence from length {original_len} to {max_length}")
+      return truncated
+      
+  def __len__(self): 
+    return len(self.triplets)
+    
+  def __getitem__(self, index):
+    return (
+      torch.tensor(self.encoded_queries[index]), 
+      torch.tensor(self.encoded_positive_docs[index]), 
+      torch.tensor(self.encoded_negative_docs[index])
+    )
 
 
 #
 # Two‑Tower encoder
 #
 class Tower(nn.Module):
-  def __init__(self, vocab, emb=64, hid=128):
+  def __init__(self, vocab_size, embedding_dim=64, hidden_dim=128):
     super().__init__()
-    self.emb = nn.Embedding(vocab, emb, padding_idx=0)
-    self.ff  = nn.Sequential(
-        nn.Linear(emb, hid),
+    logger.info(f"Initializing Tower with vocab_size={vocab_size}, embedding_dim={embedding_dim}, hidden_dim={hidden_dim}")
+    
+    self.embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx=0)
+    self.feed_forward = nn.Sequential(
+        nn.Linear(embedding_dim, hidden_dim),
         nn.ReLU(),
-        nn.Linear(hid, hid))
-  def forward(self, x):
-    # x: (B,L)
-    mask = (x>0).float().unsqueeze(-1)
-    emb  = self.emb(x) * mask                # (B,L,E)
-    emb  = emb.sum(1) / (mask.sum(1)+1e-9)   # mean pooling -> (B,E)
-    return F.normalize(self.ff(emb), dim=-1) # unit vectors
+        nn.Linear(hidden_dim, hidden_dim))
+    
+    # Count parameters
+    embedding_params = vocab_size * embedding_dim
+    ff_params = embedding_dim * hidden_dim + hidden_dim + hidden_dim * hidden_dim + hidden_dim
+    logger.info(f"Tower parameters: embedding={embedding_params:,}, feed_forward={ff_params:,}, total={embedding_params + ff_params:,}")
+        
+  def forward(self, input_ids):
+    # input_ids: (batch_size, sequence_length)
+    if logger.isEnabledFor(logging.DEBUG):
+        log_tensor_info(input_ids, "Tower input_ids")
+    
+    mask = (input_ids > 0).float().unsqueeze(-1)
+    if logger.isEnabledFor(logging.DEBUG):
+        log_tensor_info(mask, "Token mask")
+    
+    embeddings = self.embedding(input_ids) * mask                # (batch_size, sequence_length, embedding_dim)
+    if logger.isEnabledFor(logging.DEBUG):
+        log_tensor_info(embeddings, "Embeddings")
+    
+    pooled = embeddings.sum(1) / (mask.sum(1) + 1e-9)           # mean pooling -> (batch_size, embedding_dim)
+    if logger.isEnabledFor(logging.DEBUG):
+        log_tensor_info(pooled, "Pooled embeddings")
+    
+    output = F.normalize(self.feed_forward(pooled), dim=-1)      # unit vectors
+    if logger.isEnabledFor(logging.DEBUG):
+        log_tensor_info(output, "Tower output")
+    
+    return output
 
 
 class TwoTower(nn.Module):
-  def __init__(self, vocab, emb=64, hid=128):
+  def __init__(self, vocab_size, embedding_dim=64, hidden_dim=128):
     super().__init__()
-    self.q = Tower(vocab, emb, hid)
-    self.d = Tower(vocab, emb, hid)
+    logger.info(f"Initializing TwoTower model with vocab_size={vocab_size}")
+    
+    self.query_tower = Tower(vocab_size, embedding_dim, hidden_dim)
+    self.document_tower = Tower(vocab_size, embedding_dim, hidden_dim)
+    
+    # Count total parameters
+    total_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
+    logger.info(f"Total trainable parameters: {total_params:,}")
 
-  def forward(self, q, d):
-    return self.q(q), self.d(d)              # (B,H), (B,H)
+  def forward(self, query_input, document_input):
+    logger.debug("TwoTower forward pass")
+    query_vector = self.query_tower(query_input)
+    document_vector = self.document_tower(document_input)
+    return query_vector, document_vector  # (batch_size, hidden_dim), (batch_size, hidden_dim)
 
 
 #
 # Training utilities
 #
-def train(model, data, *, epochs=3, lr=1e-3, bs=256, device='cpu'):
+def train(model, dataset, *, epochs=3, learning_rate=1e-3, batch_size=256, device='cpu', use_wandb=False):
+  logger.info(f"Training model for {epochs} epochs with lr={learning_rate}, batch_size={batch_size}, device={device}")
+  
   model.to(device)
-  opt = torch.optim.AdamW(model.parameters(), lr=lr)
-  loader = torch.utils.data.DataLoader(data, batch_size=bs, shuffle=True)
+  optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+  data_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
+  loss_function = nn.TripletMarginLoss(margin=0.2)
+  
+  logger.info(f"Dataset size: {len(dataset)} triplets")
+  logger.info(f"Batch size: {batch_size}, Number of batches: {len(data_loader)}")
+  logger.info(f"Optimizer: {optimizer}")
+  logger.info(f"Loss function: {loss_function} with margin={loss_function.margin}")
 
-  for ep in range(1, epochs+1):
-    tot, n = 0.0, 0
-    for q,d,y in tqdm(loader, desc=f'Epoch {ep}', ncols=80):
-      q,d = q.to(device),d.to(device)
-      qv,dv = model(q,d)             # (B,H)
-      sims = qv @ dv.t()             # (B,B) dot product
-      lbls = torch.arange(len(qv), device=device)
-      loss = F.cross_entropy(sims, lbls)     # in-batch negatives
-      opt.zero_grad()
+  # Log model architecture to wandb if enabled
+  if use_wandb:
+    wandb.watch(model, log_freq=100)
+    logger.info("Wandb model tracking enabled")
+    
+  # Track best loss for model saving
+  best_loss = float('inf')
+  
+  # Training loop
+  for epoch in range(1, epochs+1):
+    logger.info(f"Starting epoch {epoch}/{epochs}")
+    model.train()
+    epoch_start_time = time.time()
+    total_loss, sample_count = 0.0, 0
+    progress_bar = tqdm(data_loader, desc=f'Epoch {epoch}/{epochs}', ncols=100)
+    
+    batch_times = []
+    forward_times = []
+    backward_times = []
+    
+    for batch_idx, (queries, positive_docs, negative_docs) in enumerate(progress_bar):
+      batch_start_time = time.time()
+      
+      # Move data to device
+      queries = queries.to(device)
+      positive_docs = positive_docs.to(device)
+      negative_docs = negative_docs.to(device)
+      
+      if batch_idx == 0:  # Log tensor shapes for first batch
+        logger.info(f"Batch {batch_idx} tensor shapes:")
+        log_tensor_info(queries, "queries")
+        log_tensor_info(positive_docs, "positive_docs")
+        log_tensor_info(negative_docs, "negative_docs")
+      
+      # Forward pass
+      forward_start = time.time()
+      query_vectors = model.query_tower(queries)
+      positive_doc_vectors = model.document_tower(positive_docs)
+      negative_doc_vectors = model.document_tower(negative_docs)
+      forward_time = time.time() - forward_start
+      forward_times.append(forward_time)
+      
+      if batch_idx == 0:  # Log tensor shapes for first batch
+        log_tensor_info(query_vectors, "query_vectors")
+        log_tensor_info(positive_doc_vectors, "positive_doc_vectors")
+        log_tensor_info(negative_doc_vectors, "negative_doc_vectors")
+      
+      # Compute loss
+      loss = loss_function(query_vectors, positive_doc_vectors, negative_doc_vectors)
+      
+      # Backward pass and optimization
+      backward_start = time.time()
+      optimizer.zero_grad()
       loss.backward()
-      opt.step()
-      tot += loss.item()*len(qv); n += len(qv)
-    print(f'  mean loss {tot/n:.4f}')
+      optimizer.step()
+      backward_time = time.time() - backward_start
+      backward_times.append(backward_time)
+      
+      # Calculate similarity scores for monitoring
+      pos_similarity = F.cosine_similarity(query_vectors, positive_doc_vectors).mean().item()
+      neg_similarity = F.cosine_similarity(query_vectors, negative_doc_vectors).mean().item()
+      similarity_diff = pos_similarity - neg_similarity
+      
+      batch_loss = loss.item()
+      total_loss += batch_loss * len(queries)
+      sample_count += len(queries)
+      
+      # Calculate batch time
+      batch_time = time.time() - batch_start_time
+      batch_times.append(batch_time)
+      
+      # Log detailed metrics for first few batches
+      if batch_idx < 3:
+        logger.info(f"Batch {batch_idx} metrics:")
+        logger.info(f"  Loss: {batch_loss:.6f}")
+        logger.info(f"  Positive similarity: {pos_similarity:.6f}")
+        logger.info(f"  Negative similarity: {neg_similarity:.6f}")
+        logger.info(f"  Similarity difference: {similarity_diff:.6f}")
+        logger.info(f"  Time: {batch_time:.4f}s (forward: {forward_time:.4f}s, backward: {backward_time:.4f}s)")
+      
+      # Update progress bar
+      progress_bar.set_postfix({
+        'loss': f'{batch_loss:.4f}',
+        'pos_sim': f'{pos_similarity:.4f}',
+        'neg_sim': f'{neg_similarity:.4f}',
+        'diff': f'{similarity_diff:.4f}'
+      })
+      
+      # Log metrics to wandb if enabled
+      if use_wandb:
+        wandb.log({
+          'batch': epoch * len(data_loader) + batch_idx,
+          'train/batch_loss': batch_loss,
+          'train/pos_similarity': pos_similarity,
+          'train/neg_similarity': neg_similarity,
+          'train/similarity_diff': similarity_diff,
+        })
+    
+    # Calculate epoch metrics
+    epoch_loss = total_loss / sample_count
+    epoch_time = time.time() - epoch_start_time
+    avg_batch_time = sum(batch_times) / len(batch_times)
+    avg_forward_time = sum(forward_times) / len(forward_times)
+    avg_backward_time = sum(backward_times) / len(backward_times)
+    
+    logger.info(f"Epoch {epoch}/{epochs} completed in {epoch_time:.2f}s")
+    logger.info(f"  Mean loss: {epoch_loss:.6f}")
+    logger.info(f"  Average batch time: {avg_batch_time:.4f}s (forward: {avg_forward_time:.4f}s, backward: {avg_backward_time:.4f}s)")
+    
+    # Log epoch metrics to wandb if enabled
+    if use_wandb:
+      wandb.log({
+        'epoch': epoch,
+        'train/epoch_loss': epoch_loss,
+        'train/epoch_time': epoch_time,
+      })
+      
+    # Save best model
+    if epoch_loss < best_loss:
+      best_loss = epoch_loss
+      logger.info(f"New best model with loss: {best_loss:.6f}")
+      torch.save({
+        'model': model.state_dict(),
+        'vocab': dataset.vocab.string_to_index,
+        'epoch': epoch,
+        'loss': best_loss
+      }, 'best_model.pt')
+      if use_wandb:
+        wandb.save('best_model.pt')
+  
+  logger.info(f"Training completed. Best loss: {best_loss:.6f}")
   return model
 
 
@@ -126,44 +445,162 @@ def train(model, data, *, epochs=3, lr=1e-3, bs=256, device='cpu'):
 # Simple retrieval demo
 #
 @torch.no_grad()
-def retrieve(model, query, docs, vocab, topk=5, device='cpu', max_len=64):
-  # Apply the same truncate/pad logic that's used in dataset preparation
-  def truncate(seq, n): return seq[:n] + [0]*(n-len(seq)) if len(seq)<n else seq[:n]
+def retrieve(model, query_text, document_texts, vocab, top_k=5, device='cpu', max_length=64):
+  logger.info(f"Retrieving top {top_k} documents for query: '{query_text}'")
+  logger.info(f"Corpus size: {len(document_texts)} documents")
   
-  q = torch.tensor([truncate(vocab.encode(query), max_len)], device=device)
-  d = torch.tensor([truncate(vocab.encode(t), max_len) for t in docs], device=device)
-  qv, dv = model.q(q), model.d(d)
-  scores = (qv @ dv.t()).squeeze(0)   # (N,)
-  idx = scores.argsort(descending=True)[:topk]
-  return [(docs[i], scores[i].item()) for i in idx]
+  # Apply the same truncate/pad logic that's used in dataset preparation
+  def truncate_and_pad(sequence, max_len): 
+    if len(sequence) < max_len:
+      return sequence + [0] * (max_len - len(sequence))
+    else:
+      return sequence[:max_len]
+  
+  # Encode query and documents
+  logger.info("Encoding query and documents")
+  query_encoded = torch.tensor([truncate_and_pad(vocab.encode(query_text), max_length)], device=device)
+  docs_encoded = torch.tensor([truncate_and_pad(vocab.encode(doc_text), max_length) for doc_text in document_texts], device=device)
+  
+  log_tensor_info(query_encoded, "query_encoded")
+  log_tensor_info(docs_encoded, "docs_encoded")
+  
+  # Get embeddings
+  logger.info("Computing embeddings")
+  query_vector = model.query_tower(query_encoded)
+  document_vectors = model.document_tower(docs_encoded)
+  
+  log_tensor_info(query_vector, "query_vector")
+  log_tensor_info(document_vectors, "document_vectors")
+  
+  # Compute similarities and get top-k
+  logger.info("Computing similarities and ranking documents")
+  similarity_scores = (query_vector @ document_vectors.t()).squeeze(0)   # (num_docs,)
+  top_indices = similarity_scores.argsort(descending=True)[:top_k]
+  
+  log_tensor_info(similarity_scores, "similarity_scores")
+  log_tensor_info(top_indices, "top_indices")
+  
+  # Return results
+  results = [(document_texts[idx], similarity_scores[idx].item()) for idx in top_indices]
+  logger.info(f"Top {len(results)} results:")
+  for i, (doc_text, score) in enumerate(results):
+    logger.info(f"  {i+1}. Score: {score:.4f}, Document: '{doc_text[:50]}...'")
+  
+  return results
 
 
 #
 # CLI
 #
 def main():
-  p = argparse.ArgumentParser()
-  p.add_argument('--data', required=True, help='pairs.tsv')
-  p.add_argument('--epochs', type=int, default=3)
-  p.add_argument('--bs', type=int, default=256)
-  p.add_argument('--device', default='cpu')
-  args = p.parse_args()
+  parser = argparse.ArgumentParser()
+  parser.add_argument('--data', default='pairs.parquet', help='pairs.parquet or pairs.tsv')
+  parser.add_argument('--epochs', type=int, default=3)
+  parser.add_argument('--batch_size', type=int, default=256)
+  parser.add_argument('--learning_rate', type=float, default=1e-3)
+  parser.add_argument('--device', default='cpu')
+  parser.add_argument('--wandb', action='store_true', help='Enable Weights & Biases logging')
+  parser.add_argument('--wandb_project', default=os.environ.get('WANDB_PROJECT', 'two-tower'), help='W&B project name')
+  parser.add_argument('--wandb_entity', default=os.environ.get('WANDB_ENTITY', None), help='W&B entity (username or org)')
+  parser.add_argument('--wandb_run_name', default=None, help='W&B run name')
+  parser.add_argument('--log_level', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'], default='INFO', 
+                      help='Logging level')
+  args = parser.parse_args()
 
-  ds = Pairs(args.data)
-  model = TwoTower(len(ds.vocab))
-  model = train(model, ds, epochs=args.epochs, bs=args.bs, device=args.device)
-  torch.save({'model':model.state_dict(),
-              'vocab':ds.vocab.stoi}, 'model.pt')
-  print('model saved to model.pt')
+  # Set log level
+  logger.setLevel(getattr(logging, args.log_level))
+  logger.info(f"Log level set to {args.log_level}")
+  
+  # Log all arguments
+  logger.info(f"Command-line arguments: {args}")
+  
+  # Log system info
+  import platform
+  import sys
+  logger.info(f"Python version: {platform.python_version()}")
+  logger.info(f"PyTorch version: {torch.__version__}")
+  logger.info(f"System: {platform.system()} {platform.release()}")
+  if torch.cuda.is_available():
+    logger.info(f"CUDA available: {torch.cuda.is_available()}")
+    logger.info(f"CUDA version: {torch.version.cuda}")
+    logger.info(f"GPU: {torch.cuda.get_device_name(0)}")
 
-  # quick sanity check
-  print('\nSample retrieval:')
-  sample_size = min(20, len(list(zip(ds.queries, ds.docs, ds.labels))))
-  doc_indices = random.sample(range(len(ds.doc_texts)), sample_size)
-  doc_texts = [ds.doc_texts[i] for i in doc_indices]
-  query = input('Type a query: ')
-  results = retrieve(model, query, doc_texts, ds.vocab)
-  for txt,score in results: print(f'  {score:+.3f} | {txt[:80]}...')
+  # Initialize wandb if enabled
+  if args.wandb:
+    # API key will be automatically loaded from WANDB_API_KEY in .env
+    wandb.init(
+      project=args.wandb_project,
+      entity=args.wandb_entity,
+      name=args.wandb_run_name,
+      config={
+        'learning_rate': args.learning_rate,
+        'epochs': args.epochs,
+        'batch_size': args.batch_size,
+        'device': args.device,
+        'data_path': args.data,
+      }
+    )
+    logger.info(f"Weights & Biases initialized: {wandb.run.name}")
+
+  # Load dataset
+  logger.info(f"Loading dataset from {args.data}")
+  dataset = Triplets(args.data)
+  
+  # Create model
+  logger.info("Creating model")
+  model = TwoTower(len(dataset.vocab))
+  
+  # Log dataset info to wandb if enabled
+  if args.wandb:
+    wandb.config.update({
+      'vocab_size': len(dataset.vocab),
+      'triplets_count': len(dataset.triplets),
+    })
+  
+  # Train model
+  logger.info("Starting training")
+  model = train(
+    model, 
+    dataset, 
+    epochs=args.epochs, 
+    batch_size=args.batch_size, 
+    learning_rate=args.learning_rate,
+    device=args.device,
+    use_wandb=args.wandb
+  )
+  
+  # Save final model
+  logger.info("Saving final model")
+  torch.save({
+    'model': model.state_dict(),
+    'vocab': dataset.vocab.string_to_index
+  }, 'model.pt')
+  
+  logger.info('Final model saved to model.pt')
+  logger.info('Best model saved to best_model.pt')
+
+  # Quick sanity check
+  logger.info("Performing retrieval demo")
+  sample_size = min(20, len(dataset.positive_doc_texts))
+  document_indices = random.sample(range(len(dataset.positive_doc_texts)), sample_size)
+  sample_documents = [dataset.positive_doc_texts[idx] for idx in document_indices]
+  
+  logger.info(f"Sample corpus size: {len(sample_documents)} documents")
+  logger.info(f"Sample document: '{sample_documents[0][:50]}...'")
+  
+  query_text = input('Type a query: ')
+  logger.info(f"User query: '{query_text}'")
+  
+  results = retrieve(model, query_text, sample_documents, dataset.vocab)
+  
+  print("\nRetrieval results:")
+  for i, (document_text, score) in enumerate(results):
+    print(f"  {i+1}. {score:+.3f} | {document_text[:80]}...")
+    
+  # Close wandb run if enabled
+  if args.wandb:
+    logger.info("Finishing wandb run")
+    wandb.finish()
 
 
 if __name__ == '__main__':
