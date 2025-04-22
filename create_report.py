@@ -64,53 +64,193 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
             project=project_name,
             entity=entity,
             title=report_title, 
-            description=report_description
+            description=report_description,
+            width='fluid'  # Make the report full width for better visualization
         )
         
         # Define the run set for data visualization
-        # Note: Class name is Runset (lowercase 's')
         runset = wr.Runset(
             project=project_name,
             entity=entity,
+            # Add filter for the specific run if provided
+            query=f"id={run_id}" if run_id else None,
         )
         
-        # Define panels for our report
-        panels = [
-            # Training loss panel
-            wr.LinePlot(
-                title="Training Loss",
-                x="batch",
-                y=["train/batch_loss"],
-            ),
-            
-            # Similarity metrics panel
-            wr.LinePlot(
-                title="Query-Document Similarities",
-                x="batch",
-                y=["train/pos_similarity", "train/neg_similarity"],
-            ),
-            
-            # Similarity difference panel
-            wr.LinePlot(
-                title="Similarity Gap",
-                x="batch",
-                y=["train/similarity_diff"],
-            ),
-        ]
-        
-        # Create a panel grid containing our panels and runset
-        panel_grid = wr.PanelGrid(
-            panels=panels,
-            runsets=[runset]
-        )
-        
-        # Create report structure with markdown and panel grid
+        # Add table of contents for better navigation
         report.blocks = [
-            # Title and introduction
-            wr.H1(text="Two-Tower Model Report"),
-            wr.MarkdownBlock(text="This report shows the training metrics from the two-tower retrieval model."),
-            panel_grid,
+            wr.TableOfContents(),
         ]
+        
+        # Section 1: Overview and Model Performance
+        report.blocks.extend([
+            wr.H1(text="Overview"),
+            wr.MarkdownBlock(text=(
+                "This report presents training metrics and performance analysis for the Two-Tower retrieval model. "
+                "The Two-Tower architecture consists of separate encoders for queries and documents, trained to "
+                "maximize similarity between matching pairs and minimize similarity for non-matching pairs."
+            )),
+            
+            wr.H2(text="Training Loss & Metrics"),
+            wr.PanelGrid(
+                runsets=[runset],
+                panels=[
+                    # Primary training metrics
+                    wr.LinePlot(
+                        title="Training Loss",
+                        x="batch",
+                        y=["train/batch_loss"],
+                        smoothing_factor=0.8,
+                        layout=wr.Layout(w=12, h=8)
+                    ),
+                    wr.LinePlot(
+                        title="Epoch Loss",
+                        x="epoch",
+                        y=["train/epoch_loss"],
+                        layout=wr.Layout(w=12, h=8)
+                    ),
+                ]
+            ),
+        ])
+        
+        # Section 2: Similarity Metrics
+        report.blocks.extend([
+            wr.H1(text="Similarity Analysis"),
+            wr.MarkdownBlock(text=(
+                "This section shows how similarity between queries and documents evolves during training. "
+                "Positive pairs should show increasing similarity while negative pairs should show decreasing similarity."
+            )),
+            wr.PanelGrid(
+                runsets=[runset],
+                panels=[
+                    # Similarity metrics
+                    wr.LinePlot(
+                        title="Query-Document Similarities",
+                        x="batch",
+                        y=["train/pos_similarity", "train/neg_similarity"],
+                        smoothing_factor=0.8,
+                        layout=wr.Layout(w=12, h=8)
+                    ),
+                    wr.LinePlot(
+                        title="Similarity Gap",
+                        x="batch",
+                        y=["train/similarity_diff"],
+                        smoothing_factor=0.8,
+                        layout=wr.Layout(w=12, h=8)
+                    ),
+                    # Distribution of similarities
+                    wr.ScatterPlot(
+                        title="Positive vs Negative Similarities",
+                        x="train/pos_similarity",
+                        y="train/neg_similarity",
+                        layout=wr.Layout(w=12, h=8)
+                    ),
+                ]
+            ),
+        ])
+        
+        # Section 3: Performance Metrics
+        report.blocks.extend([
+            wr.H1(text="Performance Analysis"),
+            wr.MarkdownBlock(text=(
+                "This section shows performance metrics during training, including batch processing times "
+                "and gradient behavior."
+            )),
+            wr.PanelGrid(
+                runsets=[runset],
+                panels=[
+                    # Performance metrics
+                    wr.LinePlot(
+                        title="Batch Processing Time",
+                        x="batch",
+                        y=["performance/batch_time"],
+                        smoothing_factor=0.5,
+                        layout=wr.Layout(w=8, h=6)
+                    ),
+                    wr.LinePlot(
+                        title="Forward/Backward Time Breakdown",
+                        x="batch",
+                        y=["performance/forward_time", "performance/backward_time"],
+                        smoothing_factor=0.5,
+                        layout=wr.Layout(w=8, h=6)
+                    ),
+                    wr.LinePlot(
+                        title="Samples Per Second",
+                        x="batch",
+                        y=["performance/samples_per_second"],
+                        smoothing_factor=0.5,
+                        layout=wr.Layout(w=8, h=6)
+                    ),
+                    # Gradient analysis
+                    wr.LinePlot(
+                        title="Gradient Norm",
+                        x="batch",
+                        y=["gradients/total_norm"],
+                        smoothing_factor=0.5,
+                        layout=wr.Layout(w=12, h=6)
+                    ),
+                ]
+            ),
+        ])
+        
+        # Section 4: Run Comparison and Parameter Analysis
+        report.blocks.extend([
+            wr.H1(text="Run Comparison & Configuration"),
+            wr.MarkdownBlock(text=(
+                "This section allows for comparison between different runs and analysis of hyperparameters."
+            )),
+            wr.PanelGrid(
+                runsets=[
+                    # Use a broader runset for comparison that includes multiple runs
+                    wr.Runset(
+                        project=project_name,
+                        entity=entity,
+                    ),
+                ],
+                panels=[
+                    # Run comparison
+                    wr.RunComparer(
+                        diff_only=True,
+                        layout=wr.Layout(w=24, h=10)
+                    ),
+                    # Parameter analysis
+                    wr.ParallelCoordinatesPlot(
+                        columns=[
+                            wr.ParallelCoordinatesPlotColumn(metric="c::learning_rate"),
+                            wr.ParallelCoordinatesPlotColumn(metric="c::batch_size"),
+                            wr.ParallelCoordinatesPlotColumn(metric="c::epochs"),
+                            wr.ParallelCoordinatesPlotColumn(metric="c::model.embedding_dim"),
+                            wr.ParallelCoordinatesPlotColumn(metric="c::model.hidden_dim"),
+                            wr.ParallelCoordinatesPlotColumn(metric="train/epoch_loss"),
+                            wr.ParallelCoordinatesPlotColumn(metric="train/similarity_diff"),
+                        ],
+                        layout=wr.Layout(w=24, h=8)
+                    ),
+                    # Parameter importance
+                    wr.ParameterImportancePlot(
+                        with_respect_to="train/epoch_loss",
+                        layout=wr.Layout(w=12, h=8)
+                    ),
+                ]
+            ),
+        ])
+        
+        # Section 5: Media & Examples
+        report.blocks.extend([
+            wr.H1(text="Examples & Media"),
+            wr.MarkdownBlock(text=(
+                "This section shows example inputs and retrieval results if available."
+            )),
+            wr.PanelGrid(
+                runsets=[runset],
+                panels=[
+                    # Tables and media browser
+                    wr.MediaBrowser(
+                        media_keys=["examples/query", "examples/positive_doc", "examples/negative_doc"],
+                        layout=wr.Layout(w=24, h=10)
+                    ),
+                ]
+            ),
+        ])
         
         # Save the report
         try:
