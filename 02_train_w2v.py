@@ -1,4 +1,4 @@
-# 01_train_w2v.py – Train CBOW Word2Vec model on MS MARCO
+# 02_train_w2v.py – Train CBOW Word2Vec model on MS MARCO
 # --------------------------------------------------------
 import tqdm
 import torch

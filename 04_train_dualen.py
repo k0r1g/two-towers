@@ -1,4 +1,4 @@
-# 02_train_dualen.py – train two-tower model on MS MARCO triplets
+# 04_train_dualen.py – train two-tower model on MS MARCO triplets
 # ---------------------------------------------------------------
 import pickle
 import random
