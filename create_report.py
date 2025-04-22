@@ -37,8 +37,10 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
         # Initialize the report
         report_title = title or f"Two-Tower Model Performance Report"
         report_description = description or (
-            "This report analyzes the performance of two-tower models for retrieval. "
-            "It includes training metrics, similarity distributions, and retrieval results."
+            "This report analyzes the performance of the two-tower retrieval model. The model "
+            "consists of two encoder networks (towers) that map queries and documents into a "
+            "shared embedding space, where relevant pairs are positioned closer together than "
+            "irrelevant ones."
         )
         
         # Use the current run if run_id is not provided
@@ -81,29 +83,57 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
             wr.TableOfContents(),
         ]
         
-        # Section 1: Overview and Model Performance
+        # Introduction section
         report.blocks.extend([
-            wr.H1(text="Overview"),
+            wr.H1(text="📊 Two-Tower Model Overview"),
             wr.MarkdownBlock(text=(
-                "This report presents training metrics and performance analysis for the Two-Tower retrieval model. "
-                "The Two-Tower architecture consists of separate encoders for queries and documents, trained to "
-                "maximize similarity between matching pairs and minimize similarity for non-matching pairs."
+                "## What is a Two-Tower Model?\n\n"
+                "A two-tower model (also known as a dual encoder) is a neural network architecture designed for retrieval tasks. "
+                "It consists of two separate encoder networks:\n\n"
+                "* **Query Tower**: Encodes search queries into dense vector representations\n"
+                "* **Document Tower**: Encodes documents/items into the same vector space\n\n"
+                "During training, the model learns to place semantically related query-document pairs close together in the embedding space, "
+                "while keeping unrelated pairs further apart. This architecture is particularly effective for:\n\n"
+                "* **Retrieval tasks** - Finding relevant documents for a given query\n"
+                "* **Recommendation systems** - Matching user queries with relevant items\n"
+                "* **Information retrieval** - Semantic search across large document collections\n\n"
+                "The key advantage of this architecture is that once trained, documents can be pre-encoded offline, "
+                "allowing for efficient retrieval at inference time by comparing a query embedding against a database "
+                "of document embeddings."
             )),
-            
-            wr.H2(text="Training Loss & Metrics"),
+            wr.Image(
+                url="https://miro.medium.com/max/1400/1*BYO9Q7NpLG2RSPv_hqq9SA.png",
+                caption="Two-tower architecture: separate encoders for queries and documents projecting into a shared embedding space"
+            ),
+        ])
+        
+        # Section 1: Training Dynamics
+        report.blocks.extend([
+            wr.H1(text="🔄 Training Dynamics"),
+            wr.MarkdownBlock(text=(
+                "## Training Loss & Learning Progress\n\n"
+                "This section tracks how well the model is learning over time. The loss metrics help us understand if the model is properly "
+                "distinguishing between relevant and irrelevant query-document pairs.\n\n"
+                "* **Batch Loss**: Shows the training loss for each batch of data. Lower values indicate better learning.\n"
+                "* **Epoch Loss**: Shows the average loss for each complete pass through the training data.\n\n"
+                "**What to watch for**:\n"
+                "* Steadily decreasing loss indicates good learning progress\n"
+                "* Plateaus suggest the model may need learning rate adjustments\n"
+                "* Spikes may indicate problematic batches or instability in training"
+            )),
             wr.PanelGrid(
                 runsets=[runset],
                 panels=[
                     # Primary training metrics
                     wr.LinePlot(
-                        title="Training Loss",
+                        title="Training Loss (by Batch)",
                         x="batch",
                         y=["train/batch_loss"],
                         smoothing_factor=0.8,
                         layout=wr.Layout(w=12, h=8)
                     ),
                     wr.LinePlot(
-                        title="Epoch Loss",
+                        title="Training Loss (by Epoch)",
                         x="epoch",
                         y=["train/epoch_loss"],
                         layout=wr.Layout(w=12, h=8)
@@ -112,26 +142,34 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
             ),
         ])
         
-        # Section 2: Similarity Metrics
+        # Section 2: Similarity Analysis
         report.blocks.extend([
-            wr.H1(text="Similarity Analysis"),
+            wr.H1(text="🧲 Similarity Analysis"),
             wr.MarkdownBlock(text=(
-                "This section shows how similarity between queries and documents evolves during training. "
-                "Positive pairs should show increasing similarity while negative pairs should show decreasing similarity."
+                "## Query-Document Similarity Metrics\n\n"
+                "These metrics show how effectively the model is learning to distinguish between relevant (positive) and irrelevant (negative) query-document pairs.\n\n"
+                "* **Positive Similarity**: Cosine similarity between query and relevant document embeddings. Higher values are better.\n"
+                "* **Negative Similarity**: Cosine similarity between query and irrelevant document embeddings. Lower values are better.\n"
+                "* **Similarity Gap**: The difference between positive and negative similarities. A larger gap indicates better discrimination.\n\n"
+                "**Interpreting the charts**:\n"
+                "* **Ideally**: Positive similarity should increase over time (approaching 1.0)\n"
+                "* **Ideally**: Negative similarity should decrease over time (approaching 0.0)\n"
+                "* **Similarity Gap**: Should widen over time, indicating better separation of relevant and irrelevant pairs\n"
+                "* **Scatter Plot**: Points should move toward the top-left corner as training progresses (high positive similarity, low negative similarity)"
             )),
             wr.PanelGrid(
                 runsets=[runset],
                 panels=[
                     # Similarity metrics
                     wr.LinePlot(
-                        title="Query-Document Similarities",
+                        title="Query-Document Similarity Trends",
                         x="batch",
                         y=["train/pos_similarity", "train/neg_similarity"],
                         smoothing_factor=0.8,
                         layout=wr.Layout(w=12, h=8)
                     ),
                     wr.LinePlot(
-                        title="Similarity Gap",
+                        title="Similarity Gap (Pos - Neg)",
                         x="batch",
                         y=["train/similarity_diff"],
                         smoothing_factor=0.8,
@@ -139,21 +177,30 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
                     ),
                     # Distribution of similarities
                     wr.ScatterPlot(
-                        title="Positive vs Negative Similarities",
-                        x="train/pos_similarity",
-                        y="train/neg_similarity",
+                        title="Positive vs Negative Similarity Distribution",
+                        x="train/neg_similarity",
+                        y="train/pos_similarity",
                         layout=wr.Layout(w=12, h=8)
                     ),
                 ]
             ),
         ])
         
-        # Section 3: Performance Metrics
+        # Section 3: Performance Analysis
         report.blocks.extend([
-            wr.H1(text="Performance Analysis"),
+            wr.H1(text="⚡ Performance Analysis"),
             wr.MarkdownBlock(text=(
-                "This section shows performance metrics during training, including batch processing times "
-                "and gradient behavior."
+                "## Training Performance Metrics\n\n"
+                "This section shows how efficiently the model is training in terms of computational resources and processing speed.\n\n"
+                "* **Batch Processing Time**: Time taken to process each batch of data\n"
+                "* **Forward/Backward Time**: Breakdown of time spent in forward pass (prediction) vs. backward pass (gradient computation)\n"
+                "* **Samples Per Second**: Training throughput in terms of examples processed per second\n"
+                "* **Gradient Norm**: The L2 norm of all gradients, indicating gradient magnitude during training\n\n"
+                "**Why these metrics matter**:\n"
+                "* **Processing Time**: Helps identify bottlenecks in training\n"
+                "* **Forward/Backward Split**: Unusual ratios may indicate inefficiencies in model design\n"
+                "* **Samples Per Second**: Higher is better for training efficiency\n"
+                "* **Gradient Norm**: Very large or very small values may indicate training instability or vanishing/exploding gradients"
             )),
             wr.PanelGrid(
                 runsets=[runset],
@@ -174,7 +221,7 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
                         layout=wr.Layout(w=8, h=6)
                     ),
                     wr.LinePlot(
-                        title="Samples Per Second",
+                        title="Training Throughput (Samples/Second)",
                         x="batch",
                         y=["performance/samples_per_second"],
                         smoothing_factor=0.5,
@@ -182,7 +229,7 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
                     ),
                     # Gradient analysis
                     wr.LinePlot(
-                        title="Gradient Norm",
+                        title="Gradient Norm (Model Health)",
                         x="batch",
                         y=["gradients/total_norm"],
                         smoothing_factor=0.5,
@@ -194,9 +241,22 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
         
         # Section 4: Run Comparison and Parameter Analysis
         report.blocks.extend([
-            wr.H1(text="Run Comparison & Configuration"),
+            wr.H1(text="🔬 Hyperparameter Analysis"),
             wr.MarkdownBlock(text=(
-                "This section allows for comparison between different runs and analysis of hyperparameters."
+                "## Comparing Runs & Hyperparameters\n\n"
+                "This section helps identify the impact of different hyperparameters on model performance. It's especially useful when comparing multiple training runs.\n\n"
+                "* **Run Comparer**: Directly compare configuration and metrics across different runs\n"
+                "* **Parallel Coordinates Plot**: Visualize relationships between hyperparameters and outcomes\n"
+                "* **Parameter Importance**: Identify which hyperparameters have the most impact on model performance\n\n"
+                "**Key hyperparameters for two-tower models**:\n"
+                "* **Learning Rate**: Controls step size during optimization (typically 1e-3 to 1e-5)\n"
+                "* **Batch Size**: Number of examples processed simultaneously (impacts training dynamics)\n"
+                "* **Embedding Dimension**: Size of the shared embedding space (higher = more capacity but slower)\n"
+                "* **Hidden Dimension**: Size of internal representations in the towers\n\n"
+                "**What to look for**:\n"
+                "* Patterns between hyperparameters and final loss/similarity gap\n"
+                "* Which parameters have the most impact on performance\n"
+                "* Promising hyperparameter combinations for future runs"
             )),
             wr.PanelGrid(
                 runsets=[
@@ -234,11 +294,22 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
             ),
         ])
         
-        # Section 5: Media & Examples
+        # Section 5: Examples and Retrieval Results
         report.blocks.extend([
-            wr.H1(text="Examples & Media"),
+            wr.H1(text="📝 Examples & Retrieval Results"),
             wr.MarkdownBlock(text=(
-                "This section shows example inputs and retrieval results if available."
+                "## Exploring Model Inputs & Outputs\n\n"
+                "This section provides concrete examples of the queries and documents being processed by the model, "
+                "along with retrieval results when available.\n\n"
+                "* **Queries**: Example input queries used during training/testing\n"
+                "* **Positive Documents**: Relevant documents that should be retrieved for corresponding queries\n"
+                "* **Negative Documents**: Irrelevant documents that should not be retrieved\n"
+                "* **Retrieval Results**: For test queries, the top-K retrieved documents and their similarity scores\n\n"
+                "**How to interpret retrieval results**:\n"
+                "* **Similarity Score**: Higher values indicate stronger relevance (closer to 1.0 = more relevant)\n"
+                "* **Ranking Quality**: Relevant documents should appear at the top of the list\n"
+                "* **False Positives**: Irrelevant documents with high similarity scores indicate potential areas for improvement\n"
+                "* **False Negatives**: Relevant documents with low similarity scores indicate potential model weaknesses"
             )),
             wr.PanelGrid(
                 runsets=[runset],
@@ -250,6 +321,32 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
                     ),
                 ]
             ),
+        ])
+        
+        # Section 6: Practical Applications & Next Steps
+        report.blocks.extend([
+            wr.H1(text="🚀 Applications & Next Steps"),
+            wr.MarkdownBlock(text=(
+                "## Practical Applications\n\n"
+                "Two-tower models can be deployed in various retrieval scenarios:\n\n"
+                "* **Semantic Search**: Find documents based on meaning rather than exact keyword matching\n"
+                "* **Recommendation Systems**: Match user queries or profiles with relevant items\n"
+                "* **Information Retrieval**: Efficiently retrieve information from large document collections\n"
+                "* **Question Answering**: Retrieve passages that might contain answers to questions\n\n"
+                "## Potential Improvements\n\n"
+                "Based on the observed metrics, consider these potential improvements:\n\n"
+                "* **Data Quality**: Ensure training data contains diverse query-document pairs\n"
+                "* **Negative Sampling**: Experiment with hard negative mining to improve discrimination\n"
+                "* **Model Architecture**: Try different encoder architectures or pre-trained language models\n"
+                "* **Loss Function**: Experiment with different contrastive or triplet loss variants\n"
+                "* **Hyperparameters**: Optimize learning rate, batch size, and embedding dimensions\n\n"
+                "## Deployment Considerations\n\n"
+                "When deploying the trained model:\n\n"
+                "* Pre-compute document embeddings offline for efficiency\n"
+                "* Use approximate nearest neighbor search for large-scale retrieval\n"
+                "* Consider quantization to reduce embedding size and memory footprint\n"
+                "* Monitor retrieval quality on diverse queries in production"
+            )),
         ])
         
         # Save the report
