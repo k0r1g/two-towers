@@ -41,9 +41,12 @@ import logging
 import json
 from pprint import pformat
 from typing import Dict, List, Tuple, Any, Optional
-
-# Load environment variables from .env file
-load_dotenv()
+# Import config
+from config import (
+    WANDB_PROJECT, WANDB_ENTITY, DEFAULT_BATCH_SIZE, 
+    DEFAULT_LEARNING_RATE, DEFAULT_EPOCHS, DEFAULT_EMBEDDING_DIM, 
+    DEFAULT_HIDDEN_DIM, CHECKPOINTS_DIR, MAX_SEQUENCE_LENGTH
+)
 
 # Set up logging
 logging.basicConfig(
@@ -55,6 +58,16 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger('two_tower')
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Import report creation function
+try:
+    from create_report import create_two_tower_report
+except ImportError:
+    logger.warning("create_report.py module not found. Reports will not be generated.")
+    create_two_tower_report = None
 
 # Helper function to log tensor info
 def log_tensor_info(tensor, name="tensor"):
@@ -77,7 +90,7 @@ def log_tensor_info(tensor, name="tensor"):
         logger.info(f"{name}: {tensor}")
 
 # Ensure checkpoints directory exists
-os.makedirs('checkpoints', exist_ok=True)
+os.makedirs(CHECKPOINTS_DIR, exist_ok=True)
 
 #
 # Dataset & tokeniser
@@ -472,7 +485,7 @@ def train(model, dataset, *, epochs=3, learning_rate=1e-3, batch_size=256, devic
       # Create timestamped filename
       timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
       checkpoint_name = f"two_tower_{timestamp}_epoch{epoch}.pt"
-      checkpoint_path = os.path.join("checkpoints", checkpoint_name)
+      checkpoint_path = os.path.join(CHECKPOINTS_DIR, checkpoint_name)
       
       # Save model checkpoint
       torch.save({
@@ -484,7 +497,7 @@ def train(model, dataset, *, epochs=3, learning_rate=1e-3, batch_size=256, devic
       }, checkpoint_path)
       
       # Also save as best_model.pt for easy reference
-      best_model_path = os.path.join("checkpoints", "best_model.pt")
+      best_model_path = os.path.join(CHECKPOINTS_DIR, "best_model.pt")
       torch.save({
         'model': model.state_dict(),
         'vocab': dataset.vocab.string_to_index,
@@ -567,13 +580,13 @@ def retrieve(model, query_text, document_texts, vocab, top_k=5, device='cpu', ma
 def main():
   parser = argparse.ArgumentParser()
   parser.add_argument('--data', default='pairs.parquet', help='pairs.parquet or pairs.tsv')
-  parser.add_argument('--epochs', type=int, default=3)
-  parser.add_argument('--batch_size', type=int, default=256)
-  parser.add_argument('--learning_rate', type=float, default=1e-3)
+  parser.add_argument('--epochs', type=int, default=DEFAULT_EPOCHS)
+  parser.add_argument('--batch_size', type=int, default=DEFAULT_BATCH_SIZE)
+  parser.add_argument('--learning_rate', type=float, default=DEFAULT_LEARNING_RATE)
   parser.add_argument('--device', default='cpu')
   parser.add_argument('--wandb', action='store_true', help='Enable Weights & Biases logging')
-  parser.add_argument('--wandb_project', default=os.environ.get('WANDB_PROJECT', 'two-tower'), help='W&B project name')
-  parser.add_argument('--wandb_entity', default=os.environ.get('WANDB_ENTITY', None), help='W&B entity (username or org)')
+  parser.add_argument('--wandb_project', default=os.environ.get('WANDB_PROJECT', WANDB_PROJECT), help='W&B project name')
+  parser.add_argument('--wandb_entity', default=os.environ.get('WANDB_ENTITY', WANDB_ENTITY), help='W&B entity (username or org)')
   parser.add_argument('--wandb_run_name', default=None, help='W&B run name')
   parser.add_argument('--log_level', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'], default='INFO', 
                       help='Logging level')
@@ -620,7 +633,7 @@ def main():
   
   # Create model
   logger.info("Creating model")
-  model = TwoTower(len(dataset.vocab))
+  model = TwoTower(len(dataset.vocab), embedding_dim=DEFAULT_EMBEDDING_DIM, hidden_dim=DEFAULT_HIDDEN_DIM)
   
   # Log dataset info to wandb if enabled
   if args.wandb:
@@ -701,6 +714,21 @@ def main():
       retrieval_table.add_data(i+1, score, document_text[:200] + "...")
     
     wandb.log({"retrieval_results": retrieval_table})
+
+  # Generate a report if wandb is enabled and function is available
+  if args.wandb and create_two_tower_report is not None:
+    try:
+      logger.info("Creating W&B report for this run...")
+      report_url = create_two_tower_report(
+        project_name=args.wandb_project,
+        entity=args.wandb_entity,
+        title=f"Two-Tower Report - {wandb.run.name}" if wandb.run.name else None,
+        run_id=wandb.run.id
+      )
+      if report_url:
+        logger.info(f"W&B report created: {report_url}")
+    except Exception as e:
+      logger.error(f"Failed to create W&B report: {str(e)}")
 
   # Close wandb run if enabled
   if args.wandb:
