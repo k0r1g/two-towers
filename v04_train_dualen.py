@@ -1,150 +1,130 @@
-# 04_train_dualen.py – train two-tower model on MS MARCO triplets
-# ---------------------------------------------------------------
-import pickle
-import random
+#!/usr/bin/env python
+"""
+04_train_dualen.py
+-------------------
+Trains a two-tower dual encoder model using preprocessed triplet datasets.
+"""
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader
-from pathlib import Path
+from torch.utils.data import DataLoader
 from tqdm import tqdm
+from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# 1️⃣  Parameters
-# ---------------------------------------------------------------------------
-BATCH_SIZE   = 32
-EMB_DIM      = 100  # matches the Word2Vec dimension
-LR           = 1e-3
-EPOCHS       = 5
-DEVICE       = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-DATA_DIR     = Path(".")  # or wherever your .pkl files live
-MARGIN       = 0.2
+# ─────────────────────────────────────────────────────────────────────────────
+# 1️⃣  Config
+# ─────────────────────────────────────────────────────────────────────────────
+BATCH_SIZE = 32
+EMB_DIM    = 128      # must match Word2Vec dim
+LR         = 1e-3
+EPOCHS     = 5
+MARGIN     = 0.2
+DEVICE     = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# ---------------------------------------------------------------------------
-# 2️⃣  Load tokenised data
-# ---------------------------------------------------------------------------
-print("📦 Loading tokenised data …")
-query_token_ids          = pickle.load(open(DATA_DIR / "query_token_ids.pkl", "rb"))
-relevant_token_ids       = pickle.load(open(DATA_DIR / "relevant_token_ids.pkl", "rb"))
-irrelevant_token_ids     = pickle.load(open(DATA_DIR / "irrelevant_token_ids.pkl", "rb"))
-word_to_idx              = pickle.load(open(DATA_DIR / "word_to_idx.pkl", "rb"))
-idx_to_word              = pickle.load(open(DATA_DIR / "idx_to_word.pkl", "rb"))
+DATA_DIR   = Path("data/dualen")
+SAVE_DIR   = Path("checkpoints/dualen")
+SAVE_DIR.mkdir(parents=True, exist_ok=True)
 
-vocab_size = len(idx_to_word)
+# ─────────────────────────────────────────────────────────────────────────────
+# 2️⃣  Load datasets
+# ─────────────────────────────────────────────────────────────────────────────
+print("📦 Loading datasets …")
+train_ds = torch.load(DATA_DIR / "train_dualen.pt")
+val_ds   = torch.load(DATA_DIR / "val_dualen.pt")
 
-# ---------------------------------------------------------------------------
-# 3️⃣  Dummy Word2Vec Embedding Layer (replace with pretrained)
-# ---------------------------------------------------------------------------
-embedding_layer = nn.Embedding(vocab_size, EMB_DIM)
-embedding_layer.weight.data.normal_(mean=0, std=0.1)
-embedding_layer = embedding_layer.to(DEVICE)
+train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True)
+val_loader   = DataLoader(val_ds, batch_size=BATCH_SIZE)
 
-# Optional: freeze embeddings
-embedding_layer.weight.requires_grad = False
+print(f"✅ Loaded {len(train_ds):,} train samples | {len(val_ds):,} val samples")
 
-# ---------------------------------------------------------------------------
-# 4️⃣  Dataset + Triplet Sampling
-# ---------------------------------------------------------------------------
-class MarcoTripletDataset(Dataset):
-    def __init__(self, queries, relevant_docs, irrelevant_docs):
-        self.queries = queries
-        self.relevant_docs = relevant_docs
-        self.irrelevant_docs = irrelevant_docs
-
-    def __len__(self):
-        return len(self.queries)
-
-    def __getitem__(self, idx):
-        q = self.queries[idx]
-
-        # Randomly sample 1 relevant and 1 irrelevant doc for this query
-        pos_doc = random.choice(self.relevant_docs)
-        neg_doc = random.choice(self.irrelevant_docs)
-
-        return {
-            "query": torch.tensor(q, dtype=torch.long),
-            "pos": torch.tensor(pos_doc, dtype=torch.long),
-            "neg": torch.tensor(neg_doc, dtype=torch.long),
-        }
-
-def collate_fn(batch):
-    def avg_embed(sequences):
-        masks = (sequences != 0).unsqueeze(-1).float()
-        embeds = embedding_layer(sequences)
-        summed = torch.sum(embeds * masks, dim=1)
-        lengths = masks.sum(dim=1).clamp(min=1e-9)
-        return summed / lengths
-
-    q_batch = torch.nn.utils.rnn.pad_sequence([b["query"] for b in batch], batch_first=True).to(DEVICE)
-    p_batch = torch.nn.utils.rnn.pad_sequence([b["pos"] for b in batch], batch_first=True).to(DEVICE)
-    n_batch = torch.nn.utils.rnn.pad_sequence([b["neg"] for b in batch], batch_first=True).to(DEVICE)
-
-    q_vec = avg_embed(q_batch)
-    p_vec = avg_embed(p_batch)
-    n_vec = avg_embed(n_batch)
-
-    return q_vec, p_vec, n_vec
-
-triplet_dataset = MarcoTripletDataset(query_token_ids, relevant_token_ids, irrelevant_token_ids)
-triplet_loader = DataLoader(triplet_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn)
-
-# ---------------------------------------------------------------------------
-# 5️⃣  Model definition
-# ---------------------------------------------------------------------------
-class QryTower(nn.Module):
-    def __init__(self, dim):
+# ─────────────────────────────────────────────────────────────────────────────
+# 3️⃣  Dual Encoder Towers
+# ─────────────────────────────────────────────────────────────────────────────
+class Tower(nn.Module):
+    def __init__(self, input_dim):
         super().__init__()
-        self.fc = nn.Linear(dim, dim)
+        self.fc = nn.Sequential(
+            nn.Linear(input_dim, input_dim),
+            nn.ReLU(),
+            nn.Linear(input_dim, input_dim)  # Optional second layer
+        )
 
     def forward(self, x):
         return self.fc(x)
 
-class DocTower(nn.Module):
-    def __init__(self, dim):
-        super().__init__()
-        self.fc = nn.Linear(dim, dim)
+query_encoder = Tower(EMB_DIM).to(DEVICE)
+doc_encoder   = Tower(EMB_DIM).to(DEVICE)
 
-    def forward(self, x):
-        return self.fc(x)
+# ─────────────────────────────────────────────────────────────────────────────
+# 4️⃣  Optimizer + Loss
+# ─────────────────────────────────────────────────────────────────────────────
+optimizer = torch.optim.Adam(
+    list(query_encoder.parameters()) + list(doc_encoder.parameters()),
+    lr=LR
+)
 
-qryTower = QryTower(EMB_DIM).to(DEVICE)
-docTower = DocTower(EMB_DIM).to(DEVICE)
+def triplet_loss(q, pos, neg, margin=MARGIN):
+    sim_pos = F.cosine_similarity(q, pos)
+    sim_neg = F.cosine_similarity(q, neg)
+    return torch.clamp(margin - (sim_pos - sim_neg), min=0.0).mean()
 
-# ---------------------------------------------------------------------------
-# 6️⃣  Optimizer + Training loop
-# ---------------------------------------------------------------------------
-params = list(qryTower.parameters()) + list(docTower.parameters())
-optimizer = torch.optim.Adam(params, lr=LR)
-
+# ─────────────────────────────────────────────────────────────────────────────
+# 5️⃣  Training Loop
+# ─────────────────────────────────────────────────────────────────────────────
 print("🚀 Starting training …")
 for epoch in range(EPOCHS):
-    qryTower.train()
-    docTower.train()
-    epoch_loss = 0.0
+    query_encoder.train()
+    doc_encoder.train()
+    train_loss = 0.0
 
-    for qry_vecs, pos_vecs, neg_vecs in tqdm(triplet_loader):
-        q = qryTower(qry_vecs)
-        pos = docTower(pos_vecs)
-        neg = docTower(neg_vecs)
+    for batch in tqdm(train_loader, desc=f"Epoch {epoch+1}/{EPOCHS}"):
+        q = batch['query'].to(DEVICE)
+        p = batch['positive'].to(DEVICE)
+        n = batch['negative'].to(DEVICE)
 
-        sim_pos = F.cosine_similarity(q, pos)
-        sim_neg = F.cosine_similarity(q, neg)
+        q_vec = query_encoder(q)
+        p_vec = doc_encoder(p)
+        n_vec = doc_encoder(n)
 
-        triplet_loss = torch.clamp(MARGIN - (sim_pos - sim_neg), min=0.0).mean()
+        loss = triplet_loss(q_vec, p_vec, n_vec)
 
         optimizer.zero_grad()
-        triplet_loss.backward()
+        loss.backward()
         optimizer.step()
 
-        epoch_loss += triplet_loss.item()
+        train_loss += loss.item()
 
-    avg_loss = epoch_loss / len(triplet_loader)
-    print(f"🧪 Epoch {epoch+1}/{EPOCHS} – Loss: {avg_loss:.4f}")
+    avg_train_loss = train_loss / len(train_loader)
+    print(f"📉 Epoch {epoch+1} train loss: {avg_train_loss:.4f}")
 
-# ---------------------------------------------------------------------------
-# 7️⃣  Save model
-# ---------------------------------------------------------------------------
-print("💾 Saving model weights …")
-torch.save(qryTower.state_dict(), "qry_tower.pt")
-torch.save(docTower.state_dict(), "doc_tower.pt")
+    # Optional: evaluate on val
+    query_encoder.eval()
+    doc_encoder.eval()
+    val_loss = 0.0
+
+    with torch.no_grad():
+        for batch in val_loader:
+            q = batch['query'].to(DEVICE)
+            p = batch['positive'].to(DEVICE)
+            n = batch['negative'].to(DEVICE)
+
+            q_vec = query_encoder(q)
+            p_vec = doc_encoder(p)
+            n_vec = doc_encoder(n)
+
+            loss = triplet_loss(q_vec, p_vec, n_vec)
+            val_loss += loss.item()
+
+    avg_val_loss = val_loss / len(val_loader)
+    print(f"🧪 Epoch {epoch+1} val loss: {avg_val_loss:.4f}")
+
+    # Save checkpoint
+    torch.save({
+        'query_encoder': query_encoder.state_dict(),
+        'doc_encoder': doc_encoder.state_dict(),
+        'epoch': epoch + 1,
+        'train_loss': avg_train_loss,
+        'val_loss': avg_val_loss
+    }, SAVE_DIR / f"dualen_epoch{epoch+1}.pt")
+
 print("✅ Training complete.")
