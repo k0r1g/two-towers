@@ -13,10 +13,11 @@ Prepares train, val, and test datasets for the dual encoder model by:
 import os, pickle, json
 import torch
 from pathlib import Path
-from 00_build_triplets import build_triplets
-from 01_train_tkn import preprocess as tokenize
+from v00_build_triplets import build_triplets
+from v01_train_tkn import preprocess as tokenize
 from gensim.models import Word2Vec
 from torch.utils.data import Dataset
+from dataset import DualEncoderDataset
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFIG
@@ -27,7 +28,7 @@ TOKEN_PATH   = Path("data/tokens")
 FINAL_PATH   = Path("data/dualen")
 TRAIN_TOKEN_DIR = TOKEN_PATH / "train"
 WORD_TO_IDX = TRAIN_TOKEN_DIR / "word_to_idx.pkl"
-EMBEDDING_MODEL = "checkpoints/w2v_cbow.model"  # Gensim Word2Vec model
+EMBEDDING_MODEL = "checkpoints/w2v_cbow.model"  
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1️⃣ Build triplets for val/test (train is assumed prebuilt)
@@ -100,17 +101,6 @@ def embed_and_average(data_dir):
 # 5️⃣ Save averaged dual encoder dataset
 # ─────────────────────────────────────────────────────────────────────────────
 FINAL_PATH.mkdir(parents=True, exist_ok=True)
-
-class DualEncoderDataset(Dataset):
-    def __init__(self, triplets):
-        self.data = triplets
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, idx):
-        q, p, n = self.data[idx]
-        return {'query': q, 'positive': p, 'negative': n}
 
 for split in SPLITS_TO_TOKENIZE:
     token_dir = TOKEN_PATH / split

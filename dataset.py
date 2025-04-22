@@ -63,3 +63,19 @@ class TripletDataset(Dataset):
             "positive": torch.tensor(self.positive_ids[idx], dtype=torch.long),
             "negative": torch.tensor(self.negative_ids[idx], dtype=torch.long),
         }
+
+class DualEncoderDataset(Dataset):
+    """Dataset for Dual Encoder model using precomputed averaged embeddings."""
+    def __init__(self, triplets):
+        # triplets: List of tuples, where each tuple is (query_embedding, positive_embedding, negative_embedding)
+        self.data = triplets
+
+    def __len__(self):
+        # Returns the total number of triplets
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        # Retrieves the triplet at the given index
+        q, p, n = self.data[idx]
+        # Returns a dictionary containing the query, positive, and negative embeddings
+        return {'query': q, 'positive': p, 'negative': n}
