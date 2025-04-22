@@ -39,21 +39,27 @@ class MSMarcoCBOWDataset(Dataset):
 
 
 
-
-
 class TripletDataset(Dataset):
-    def __init__(self, triplets, tokenizer, embedder):
-        self.triplets = triplets
-        self.tokenizer = tokenizer
-        self.embedder = embedder
+    def __init__(self, data_dir="data/train_tokens"):
+        self.data_dir = data_dir
+
+        with open(f"{data_dir}/query_ids.pkl", "rb") as f:
+            self.query_ids = pickle.load(f)
+
+        with open(f"{data_dir}/positive_ids.pkl", "rb") as f:
+            self.positive_ids = pickle.load(f)
+
+        with open(f"{data_dir}/negative_ids.pkl", "rb") as f:
+            self.negative_ids = pickle.load(f)
+
+        assert len(self.query_ids) == len(self.positive_ids) == len(self.negative_ids)
 
     def __len__(self):
-        return len(self.triplets)
+        return len(self.query_ids)
 
     def __getitem__(self, idx):
-        q, p, n = self.triplets[idx]
         return {
-            'query': self.embedder(self.tokenizer(q)),
-            'positive': self.embedder(self.tokenizer(p)),
-            'negative': self.embedder(self.tokenizer(n)),
+            "query": torch.tensor(self.query_ids[idx], dtype=torch.long),
+            "positive": torch.tensor(self.positive_ids[idx], dtype=torch.long),
+            "negative": torch.tensor(self.negative_ids[idx], dtype=torch.long),
         }
