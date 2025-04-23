@@ -2,7 +2,7 @@
 
 
 TO DO's TOMORROW: 
-0) Go through v04 in detail -> note that we havent reviewed it. Review every line. 
+0) Go through v04 in detail -> note that we havent reviewed it. Review every line. (DONE)
 1) An inference script (05_eval_dualen.py) to score or rank docs 
 2) Dont forget to reimplement huggingface and wandb logging everywhere
 3) Set up v04 so that we can run both the simple model architecture as well as the RNN version tomorrow 

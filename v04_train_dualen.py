@@ -11,6 +11,9 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from pathlib import Path
 
+# Import the tower models
+from model import QryTower, DocTower
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 1️⃣  Config
 # ─────────────────────────────────────────────────────────────────────────────
@@ -40,20 +43,9 @@ print(f"✅ Loaded {len(train_ds):,} train samples | {len(val_ds):,} val samples
 # ─────────────────────────────────────────────────────────────────────────────
 # 3️⃣  Dual Encoder Towers
 # ─────────────────────────────────────────────────────────────────────────────
-class Tower(nn.Module):
-    def __init__(self, input_dim):
-        super().__init__()
-        self.fc = nn.Sequential(
-            nn.Linear(input_dim, input_dim),
-            nn.ReLU(),
-            nn.Linear(input_dim, input_dim)  # Optional second layer
-        )
-
-    def forward(self, x):
-        return self.fc(x)
-
-query_encoder = Tower(EMB_DIM).to(DEVICE)
-doc_encoder   = Tower(EMB_DIM).to(DEVICE)
+# We now instantiate the specific tower classes imported from model.py
+query_encoder = QryTower(EMB_DIM).to(DEVICE)
+doc_encoder   = DocTower(EMB_DIM).to(DEVICE)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 4️⃣  Optimizer + Loss
@@ -62,11 +54,36 @@ optimizer = torch.optim.Adam(
     list(query_encoder.parameters()) + list(doc_encoder.parameters()),
     lr=LR
 )
-
+s
 def triplet_loss(q, pos, neg, margin=MARGIN):
     sim_pos = F.cosine_similarity(q, pos)
     sim_neg = F.cosine_similarity(q, neg)
     return torch.clamp(margin - (sim_pos - sim_neg), min=0.0).mean()
+    
+    
+    
+# ─────────────────────────────────────────────────────────────────────────────
+#   NOTES:
+# ─────────────────────────────────────────────────────────────────────────────  
+'''
+q_input ──▶ [query_encoder weights] ──▶ q_vec ─┐
+                                               │
+p_input ──▶ [doc_encoder weights]   ──▶ p_vec ─┼──▶ triplet_loss ─▶ loss
+n_input ──▶ [doc_encoder weights]   ──▶ n_vec ─┘
+
+
+q_input → query_encoder → loss
+
+p_input → doc_encoder → loss
+
+n_input → doc_encoder → loss
+
+
+
+''' 
+    
+    
+    
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 5️⃣  Training Loop
