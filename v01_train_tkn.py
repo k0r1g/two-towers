@@ -5,12 +5,6 @@
 Tokenise the triplets produced by 00_build_triplets.py, build the
 vocabulary, convert to ID sequences, and save everything.
 
-✨ Enhancements over the previous version:
-• Robust Weights & Biases (wandb) integration – logs config, metrics, and
-  uploads the generated pickle files as an Artifact.
-• Optional push of the saved artefacts to the Hugging Face Hub (model or
-  dataset repo) with automatic README generation.
-
 This script **never touches the raw MS‑MARCO split** – it works only with
  the JSONL triplets file.
 """
@@ -174,7 +168,7 @@ if os.environ.get("WANDB_API_KEY"):
     print("✅  wandb run finished and artefacts logged.\n")
 
 # ────────────────────────────────────────────────────────────────────────────────
-# 6️⃣  Upload to Hugging Face Hub 
+# 6️⃣  Upload to Hugging Face Hub
 # ────────────────────────────────────────────────────────────────────────────────
 if args.hf_repo:
     print("🚀  Uploading artefacts to the Hugging Face Hub …")
