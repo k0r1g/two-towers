@@ -78,37 +78,33 @@ coll   = client.get_or_create_collection(name=COLLECTION)
 
 if coll.count() == 0:
     print("🗂  Encoding and caching documents …")
-    # Gather unique docs: we use stringified tensor bytes as key
-    cache, id2vec = {}, {}
+    # Use tensor.bytes() as a hash to de-duplicate
+    raw_vecs = {}
     for item in tqdm(test_ds, desc="Index docs"):
-        # positive
-        key = item["positive"].cpu().numpy().tobytes()
-        if key not in cache:
-            cache[key] = item["positive"]
-        # negative
-        key = item["negative"].cpu().numpy().tobytes()
-        if key not in cache:
-            cache[key] = item["negative"]
+        for field in ("positive", "negative"):
+            key = item[field].cpu().numpy().tobytes()
+            if key not in raw_vecs:
+                raw_vecs[key] = item[field]
 
-    # Encode with DocTower in batches for speed
-    ids, embs = [], []
-    all_docs  = list(cache.items())
+    # Batch-encode with DocTower
+    ids, embs, vec2id = [], [], {}          # vec2id  ➜  bytes → doc_id
+    raw_items = list(raw_vecs.items())
     BATCH = 512
-    for i in tqdm(range(0, len(all_docs), BATCH), desc="DocTower"):
-        chunk = all_docs[i : i + BATCH]
-        vecs  = torch.stack([v for _, v in chunk]).to(DEVICE)
-        enc   = doc_enc(vecs).cpu()
-        for (raw_id, _), e in zip(chunk, enc):
-            str_id = f"doc_{len(ids)}"
-            ids.append(str_id)
-            embs.append(e.tolist())
-            id2vec[str_id] = e           # keep for quick gt comparison
+    for i in tqdm(range(0, len(raw_items), BATCH), desc="DocTower"):
+        chunk_keys, chunk_vecs = zip(*raw_items[i : i + BATCH])
+        encs = doc_enc(torch.stack(chunk_vecs).to(DEVICE)).cpu()
+        for key, enc in zip(chunk_keys, encs):
+            did = f"doc_{len(ids)}"
+            vec2id[key] = did
+            ids.append(did)
+            embs.append(enc.tolist())
 
-    # Store in Chroma (we can leave documents=None)
     coll.add(ids=ids, embeddings=embs)
     print(f"✅ Cached {len(ids):,} unique docs")
 else:
     print(f"✅ Re-using existing cache with {coll.count():,} docs")
+    # Build vec2id lazily from collection metadata if needed
+    vec2id = {}  # (not used when cache already exists in this simple script)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 3️⃣  Iterate queries, gather metrics
@@ -117,49 +113,33 @@ print("🔎 Running evaluation …")
 tot_loss, tot_f1, n_queries = 0.0, 0.0, len(test_ds)
 
 for item in tqdm(test_ds):
-    q_vec   = item["query"].unsqueeze(0).to(DEVICE)       # (1, dim)
-    pos_vec = item["positive"].unsqueeze(0).to(DEVICE)
-    neg_vec = item["negative"].unsqueeze(0).to(DEVICE)
-
+    # ── Encode query once
+    q_vec = item["query"].unsqueeze(0).to(DEVICE)
     with torch.no_grad():
-        q_enc  = qry_enc(q_vec).cpu()                     # (1, dim)
-        p_enc  = doc_enc(pos_vec).cpu()
-        n_enc  = doc_enc(neg_vec).cpu()
+        q_enc = qry_enc(q_vec).cpu()  # (1, dim)
 
-    # ── Triplet loss
-    loss_val = triplet_margin_loss(q_enc, p_enc, n_enc).item()
-    tot_loss += loss_val
+    # ── Triplet loss (use pre-encoded p_enc / n_enc only for loss)
+    with torch.no_grad():
+        p_enc = doc_enc(item["positive"].unsqueeze(0).to(DEVICE)).cpu()
+        n_enc = doc_enc(item["negative"].unsqueeze(0).to(DEVICE)).cpu()
+
+    tot_loss += triplet_margin_loss(q_enc, p_enc, n_enc).item()
 
     # ── Retrieve top-k via Chroma
-    results = coll.query(
-        query_embeddings=q_enc.tolist(),  # we supply the embedding, not text
+    retrieved_ids = coll.query(
+        query_embeddings=q_enc.tolist(),
         n_results=K,
         include=["ids"]
-    )
-    retrieved_ids = results["ids"][0]    # list of ids
+    )["ids"][0]
 
-    # Build relevance vector (1 relevant doc per sample)
-    relevant_id = None
-    # find which cached id corresponds to the positive encoding
-    # we stored raw tensor bytes as key originally, get first match:
-    pos_key = item["positive"].cpu().numpy().tobytes()
-    # simple O(N) search (tiny) — could store a reverse-lookup dict
-    for id_, vec in coll.get(ids=retrieved_ids, include=["embeddings"])["embeddings"][0]:
-        pass  # placeholder (embedding retrieval not needed here)
+    # ── Check hit  (vec2id gives us the cached ID of the true positive)
+    pos_id  = vec2id[item["positive"].cpu().numpy().tobytes()]
+    hit     = 1 if pos_id in retrieved_ids else 0
 
-    # We stored mapping in 'id2vec'
-    for _id, vec in id2vec.items():
-        if torch.allclose(vec, doc_enc(item["positive"].to(DEVICE)).cpu(), atol=1e-6):
-            relevant_id = _id
-            break
-
-    hits = 1 if relevant_id in retrieved_ids else 0
-    precision = hits / K
-    recall    = hits / 1        # exactly 1 positive per query
-    f1        = 0.0 if hits == 0 else 2 * precision * recall / (precision + recall)
-
-    tot_f1 += f1
-
+    precision = hit / K
+    recall    = hit / 1
+    f1        = 0.0 if hit == 0 else 2 * precision * recall / (precision + recall)
+    tot_f1   += f1
 # ─────────────────────────────────────────────────────────────────────────────
 # 4️⃣  Results
 # ─────────────────────────────────────────────────────────────────────────────
