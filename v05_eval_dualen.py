@@ -70,7 +70,7 @@ def triplet_margin_loss(q, pos, neg, margin=MARGIN):
 # 1️⃣  Load data & models
 # ─────────────────────────────────────────────────────────────────────────────
 print("📦 Loading test dataset and model checkpoint …")
-test_ds = torch.load(DATA_DIR / "test_dualen.pt")
+test_ds = torch.load(DATA_DIR / "test_dualen_avg.pt")
 
 chkpt = torch.load(CKPT_PATH, map_location="cpu")
 qry_enc = QryTower(EMB_DIM).to(DEVICE)
@@ -107,10 +107,12 @@ if coll.count() == 0:
     # Use tensor.bytes() as a hash to de-duplicate
     raw_vecs = {}
     for item in tqdm(test_ds, desc="Index docs"):
-        for field in ("positive", "negative"):
-            key = item[field].cpu().numpy().tobytes()
+        # unpack the tuple (query, positive, negative)
+        _, pos, neg = item
+        for vec in (pos, neg):
+            key = vec.cpu().numpy().tobytes()
             if key not in raw_vecs:
-                raw_vecs[key] = item[field]
+                raw_vecs[key] = vec
 
     # Batch-encode with DocTower
     ids, embs, vec2id = [], [], {}          # vec2id  ➜  bytes → doc_id
@@ -139,33 +141,36 @@ print("🔎 Running evaluation …")
 tot_loss, tot_f1, n_queries = 0.0, 0.0, len(test_ds)
 
 for item in tqdm(test_ds):
+    # unpack tuple (query, positive, negative)
+    q_vec, pos_vec, neg_vec = item
+    q_vec = q_vec.unsqueeze(0).to(DEVICE)
+
     # ── Encode query once
-    q_vec = item["query"].unsqueeze(0).to(DEVICE)
     with torch.no_grad():
         q_enc = qry_enc(q_vec).cpu()  # (1, dim)
 
     # ── Triplet loss (use pre-encoded p_enc / n_enc only for loss)
     with torch.no_grad():
-        p_enc = doc_enc(item["positive"].unsqueeze(0).to(DEVICE)).cpu()
-        n_enc = doc_enc(item["negative"].unsqueeze(0).to(DEVICE)).cpu()
+        p_enc = doc_enc(pos_vec.unsqueeze(0).to(DEVICE)).cpu()
+        n_enc = doc_enc(neg_vec.unsqueeze(0).to(DEVICE)).cpu()
 
     tot_loss += triplet_margin_loss(q_enc, p_enc, n_enc).item()
 
     # ── Retrieve top-k via Chroma
     retrieved_ids = coll.query(
         query_embeddings=q_enc.tolist(),
-        n_results=K,
-        include=["ids"]
+        n_results=K
     )["ids"][0]
 
     # ── Check hit  (vec2id gives us the cached ID of the true positive)
-    pos_id  = vec2id[item["positive"].cpu().numpy().tobytes()]
+    pos_id  = vec2id[pos_vec.cpu().numpy().tobytes()]
     hit     = 1 if pos_id in retrieved_ids else 0
 
     precision = hit / K
     recall    = hit / 1
     f1        = 0.0 if hit == 0 else 2 * precision * recall / (precision + recall)
     tot_f1   += f1
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 4️⃣  Results
 # ─────────────────────────────────────────────────────────────────────────────

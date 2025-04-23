@@ -1,9 +1,15 @@
 # --- Deep‑learning core ---
+torch==2.2.1
+python-dotenv==1.0.0
 
 # --- NLP + embeddings ---
 gensim==4.3.2
 torchtext==0.17.1
 sentencepiece==0.1.99
+nltk==3.8.1
+datasets==2.16.0
+huggingface-hub==0.19.4
+chromadb==0.4.22
 
 # --- Training utilities ---
 numpy==1.26.4

@@ -1,5 +1,9 @@
 
 
+NOTE: 
+- we never ended up using: TripletDataset or DualEncoderDataset, dig into why. 
+
+
 
 TO DO's TOMORROW: 
 0) Go through v04 in detail -> note that we havent reviewed it. Review every line. (DONE)

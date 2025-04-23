@@ -42,7 +42,7 @@ SPLITS_TO_TOKENIZE = ["train", "val", "test"]
 TRIPLET_PATH = Path("data/triplets")
 TOKEN_PATH   = Path("data/tokens")
 FINAL_PATH   = Path("data/dualen")
-TRAIN_TOKEN_DIR = TOKEN_PATH / "train"
+TRAIN_TOKEN_DIR = Path("data/train_tokens")
 WORD_TO_IDX = TRAIN_TOKEN_DIR / "word_to_idx.pkl"
 # (Word2Vec constant removed – using CBOW checkpoints instead)
 EMBEDDING_MODEL = "checkpoints/w2v_cbow.model"  

@@ -69,4 +69,8 @@ if __name__ == "__main__":
     p.add_argument("--split",   default="train")
     p.add_argument("--num_examples", type=int)
     p.add_argument("--outfile", default="data/marco_triplets.jsonl")
-    build_triplets(**vars(p.parse_args()))
+    args = p.parse_args()
+    
+    # call build_triplets with args
+    build_triplets(version=args.version, split=args.split, 
+                  num_examples=args.num_examples, outfile=args.outfile)

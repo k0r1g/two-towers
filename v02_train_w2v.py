@@ -16,6 +16,10 @@ load_dotenv()  # This loads the variables from .env
 from dataset import MSMarcoCBOWDataset
 from model import CBOW
 
+
+## NOTE: 
+#  Change data_dir="data/train_tokens" 
+
 # ---------------------------------------------------------------------------
 # 0️⃣  Parameters + Setup
 # ---------------------------------------------------------------------------

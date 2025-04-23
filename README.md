@@ -20,7 +20,7 @@ This repository contains a Continuous Bag of Words (CBOW) Word2Vec model trained
 - **Embedding Dimension**: 128
 - **Context Window Size**: 4
 - **Vocabulary Size**: 50,001
-- **Training Pairs**: 1,307,734
+- **Training Pairs**: 6,618,785
 - **Parameters**: 12,800,256
 - **Training Device**: cuda
 

@@ -51,6 +51,16 @@ HF_REPO_ID   = "Kogero/msmarco-dualen-mlp"
 HF_REPO_TYPE = "model"
 
 # ─────────────────────────────────────────────────────────────────────────────
+# ── Initialize wandb run ────────────────────────────────────────────────────
+run = wandb.init(project=WANDB_PROJECT, name=RUN_NAME, config={
+    "batch_size": BATCH_SIZE,
+    "embed_dim":  EMB_DIM,
+    "lr":         LR,
+    "margin":     MARGIN,
+    "epochs":     EPOCHS,
+})
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 2️⃣  Load datasets
 # ─────────────────────────────────────────────────────────────────────────────
 print("📦 Loading datasets …")
@@ -116,9 +126,8 @@ for epoch in range(EPOCHS):
     train_loss = 0.0
 
     for batch in tqdm(train_loader, desc=f"Epoch {epoch+1}/{EPOCHS}"):
-        q = batch['query'].to(DEVICE)
-        p = batch['positive'].to(DEVICE)
-        n = batch['negative'].to(DEVICE)
+        # Unpack tuple and move tensors to device
+        q, p, n = (t.to(DEVICE) for t in batch)
 
         q_vec = query_encoder(q)
         p_vec = doc_encoder(p)
@@ -142,9 +151,8 @@ for epoch in range(EPOCHS):
 
     with torch.no_grad():
         for batch in val_loader:
-            q = batch['query'].to(DEVICE)
-            p = batch['positive'].to(DEVICE)
-            n = batch['negative'].to(DEVICE)
+            # Unpack tuple and move tensors to device
+            q, p, n = (t.to(DEVICE) for t in batch)
 
             q_vec = query_encoder(q)
             p_vec = doc_encoder(p)
@@ -173,10 +181,16 @@ for epoch in range(EPOCHS):
         'val_loss': avg_val_loss
     }, ckpt_path)
 
-    # Log checkpoint as artifact
-    art = wandb.Artifact(f"dualen-ckpt-epoch{epoch+1}", type="model")
-    art.add_file(ckpt_path)
-    run.log_artifact(art)
+    # Log checkpoint as artifact - MOVED OUTSIDE LOOP
+    # art = wandb.Artifact(f"dualen-ckpt-epoch{epoch+1}", type="model")
+    # art.add_file(ckpt_path)
+    # run.log_artifact(art)
+
+# ── Log final checkpoint as artifact ────────────────────────────────────────
+print(f"🪵 Logging final checkpoint {ckpt_path} to wandb...")
+art = wandb.Artifact(f"dualen-ckpt-final", type="model", metadata={"epoch": EPOCHS}) # Use a fixed name, add epoch metadata
+art.add_file(ckpt_path)
+run.log_artifact(art)
 
 # ── Upload last checkpoint to Hugging Face Hub ──────────────────────────────
 hf_token = os.environ.get("HUGGINGFACE_TOKEN") or os.environ.get("HUGGINGFACE_KEY")
