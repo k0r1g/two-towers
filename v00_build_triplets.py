@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 """
-00_build_triplets.py
+v00_build_triplets.py
 --------------------
 Create (query, positive, negative) triplets from MS‑MARCO and
 save them as JSONL – one triplet per line.
 
 ▶︎ Usage
-$ python 00_build_triplets.py \
+$ python v00_build_triplets.py \
       --version v1.1 \
       --num_examples 5000 \
       --split train \

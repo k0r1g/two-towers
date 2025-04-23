@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """
-01_train_tkn.py (enhanced)
+v01_train_tkn.py (enhanced)
 -------------------------
-Tokenise the triplets produced by 00_build_triplets.py, build the
+Tokenise the triplets produced by v00_build_triplets.py, build the
 vocabulary, convert to ID sequences, and save everything.
 
 This script **never touches the raw MS‑MARCO split** – it works only with

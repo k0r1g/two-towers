@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-04_train_dualen.py
+v04_train_dualen.py
 -------------------
 Trains a two-tower dual encoder model using preprocessed triplet datasets.
 """

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-03_prep_dualen_data.py
+v03_prep_dualen_data.py
 -----------------------
 Prepares train, val, and test datasets for the dual encoder model by:
 - Building triplets for val/test
