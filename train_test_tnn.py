@@ -260,6 +260,7 @@ def train_validate_test():
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             torch.save(model.state_dict(), "best_two_tower_model.pt")
+            wandb.save("best_two_tower_model.pt")
             patience_counter = 0
         else:
             patience_counter += 1
