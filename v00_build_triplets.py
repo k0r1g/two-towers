@@ -12,6 +12,9 @@ $ python 00_build_triplets.py \
       --split train \
       --outfile data/marco_triplets_5k.jsonl
 """
+from dotenv import load_dotenv
+load_dotenv() 
+
 import random, json, argparse
 from pathlib import Path
 from datasets import load_dataset

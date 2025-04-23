@@ -24,6 +24,9 @@ from dataset import DualEncoderDataset
 from model import CBOW            # CBOW embedding model
 import glob                       # to pick the latest checkpoint
 
+from dotenv import load_dotenv
+load_dotenv() 
+
 # Optional HF upload
 try:
     from huggingface_hub import HfApi, create_repo

@@ -8,6 +8,9 @@ vocabulary, convert to ID sequences, and save everything.
 This script **never touches the raw MS‑MARCO split** – it works only with
  the JSONL triplets file.
 """
+from dotenv import load_dotenv
+load_dotenv() 
+
 from __future__ import annotations
 import os, sys, re, pickle, argparse, collections, json, datetime
 from pathlib import Path
