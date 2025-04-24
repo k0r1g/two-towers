@@ -1,5 +1,5 @@
 # paths
-data: data/processed/synthetic_triplets.parquet
+data: data/processed/classic_triplets.parquet
 device: cuda
 checkpoint_dir: checkpoints
 
@@ -32,8 +32,8 @@ optimizer:
   lr: 5e-4  # Lower learning rate for pre-trained embeddings
 
 # W&B configuration
-use_wandb: false
+use_wandb: true
 wandb:
   project: two-tower-retrieval
-  entity: null
+  entity: azuremis
   run_name: word2vec_skipgram_run 
