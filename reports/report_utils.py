@@ -113,9 +113,21 @@ def resolve_entity(entity_cfg: Optional[str]) -> str:
     
     # Fourth try: try to get from config
     try:
+        # First try the YAML config
+        from twotower.utils import load_config
+        try:
+            default_config = load_config("configs/default_config.yml")
+            entity = default_config.get("wandb", {}).get("entity")
+            if entity:
+                logger.info(f"Using entity from default_config.yml: {entity}")
+                return entity
+        except (FileNotFoundError, KeyError) as e:
+            logger.warning(f"Could not load WANDB_ENTITY from default_config.yml: {str(e)}")
+
+        # Fall back to old config if needed
         from config import WANDB_ENTITY
         if WANDB_ENTITY:
-            logger.info(f"Using entity from config: {WANDB_ENTITY}")
+            logger.info(f"Using entity from config.py: {WANDB_ENTITY}")
             return WANDB_ENTITY
     except (ImportError, AttributeError):
         logger.warning("Could not import WANDB_ENTITY from config")

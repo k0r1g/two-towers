@@ -1,6 +1,10 @@
 """
 Configuration settings for two-tower experiments.
 Contains project-wide constants and default values.
+
+DEPRECATED: This file is deprecated in favor of YAML configuration files in the configs/ directory.
+The default configuration is now in configs/default_config.yml.
+This file is kept for backward compatibility and will be removed in the future.
 """
 
 # W&B settings

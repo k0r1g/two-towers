@@ -131,6 +131,30 @@ Both towers have identical architectures but maintain separate weights. The mode
 
 [MIT License](LICENSE)
 
+# Configuration System
+
+The Two-Tower system uses a powerful, hierarchical configuration system that manages complexity through:
+
+1. **YAML Configuration Files** - Human-readable configuration stored in the `configs/` directory
+2. **Configuration Inheritance** - Extend base configs to create specialized configurations
+3. **Environment Variable Overrides** - Override any setting with `TWOTOWER_` prefixed environment variables
+4. **Command-line Arguments** - Override settings via command-line arguments
+
+## Basic Configuration Usage
+
+```bash
+# Use a specific config file
+python train.py --config configs/char_tower.yml
+
+# Override settings via command line
+python train.py --config configs/char_tower.yml --epochs 10 --batch_size 512
+
+# Override settings via environment variables
+TWOTOWER_BATCH_SIZE=512 TWOTOWER_EPOCHS=10 python train.py --config configs/char_tower.yml
+```
+
+For a complete configuration reference, see [CONFIG.md](CONFIG.md).
+
 
 
 

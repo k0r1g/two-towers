@@ -96,17 +96,104 @@ def save_config(config: Dict[str, Any], path: str) -> None:
 def load_config(path: str) -> Dict[str, Any]:
     """
     Load a configuration dictionary from a YAML file.
+    Supports environment variable overrides with TWOTOWER_ prefix.
+    Supports inheritance via 'extends' property.
     
     Args:
         path: Path to the configuration file
     
     Returns:
-        Configuration dictionary
+        Configuration dictionary with all values resolved
     """
     with open(path, 'r') as f:
         config = yaml.safe_load(f)
+    
+    # Process inheritance if specified
+    if 'extends' in config:
+        base_path = config.pop('extends')
+        # If base_path is not absolute, make it relative to current config directory
+        if not os.path.isabs(base_path):
+            config_dir = os.path.dirname(path)
+            base_path = os.path.join(config_dir, base_path)
+        
+        # Load the base config
+        base_config = load_config(base_path)
+        
+        # Deep merge the configurations (base config values are overridden by specific config)
+        merged_config = deep_merge(base_config, config)
+        config = merged_config
+    
+    # Process environment variable overrides
+    env_overrides = {}
+    
+    # Check for environment variables that start with TWOTOWER_
+    for env_name, env_value in os.environ.items():
+        if env_name.startswith('TWOTOWER_'):
+            # Convert TWOTOWER_BATCH_SIZE to batch_size
+            config_key = env_name[9:].lower()
+            
+            # Handle nested keys with double underscore
+            # e.g., TWOTOWER_WANDB__PROJECT becomes wandb.project
+            if '__' in config_key:
+                parts = config_key.split('__')
+                current = env_overrides
+                for part in parts[:-1]:
+                    if part not in current:
+                        current[part] = {}
+                    current = current[part]
+                current[parts[-1]] = parse_env_value(env_value)
+            else:
+                env_overrides[config_key] = parse_env_value(env_value)
+    
+    # Apply environment overrides
+    if env_overrides:
+        config = deep_merge(config, env_overrides)
+        logger.info(f"Applied environment overrides: {list(env_overrides.keys())}")
+    
     logger.info(f"Configuration loaded from {path}")
     return config
+
+def parse_env_value(value: str) -> Any:
+    """Parse environment variable value to the appropriate type."""
+    # Try to convert to numeric types
+    try:
+        # Check if it's an integer
+        return int(value)
+    except ValueError:
+        try:
+            # Check if it's a float
+            return float(value)
+        except ValueError:
+            # Handle boolean values
+            if value.lower() in ('true', 'yes', '1'):
+                return True
+            elif value.lower() in ('false', 'no', '0'):
+                return False
+            # Return as string for all other cases
+            return value
+
+def deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Recursively merge two dictionaries, with values from 'override' taking precedence.
+    
+    Args:
+        base: Base dictionary
+        override: Dictionary with values to override
+        
+    Returns:
+        Merged dictionary
+    """
+    result = base.copy()
+    
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            # Recursively merge nested dictionaries
+            result[key] = deep_merge(result[key], value)
+        else:
+            # Override or add the value
+            result[key] = value
+            
+    return result
 
 def save_checkpoint(
     model: torch.nn.Module,

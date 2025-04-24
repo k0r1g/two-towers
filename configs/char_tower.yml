@@ -1,38 +1,53 @@
-# paths
-data: data/processed/classic_triplets.parquet
-device: cuda  # Change to 'cpu' if no GPU available
-checkpoint_dir: checkpoints
+# Character-level Tower Architecture
+# 
+# Configuration for a CNN-based architecture that uses character-level tokenization.
+# Extends the default configuration with character-specific settings.
 
-# Stage 1 – tokeniser
+extends: default_config.yml
+
+#==============================================================================
+# Tokenizer Configuration
+#==============================================================================
 tokeniser:
-  type: char
-  max_len: 64
+  type: char                                  # Character-level tokenization
+  max_len: 64                                 # Maximum sequence length
 
-# Stage 2 – embeddings
+#==============================================================================
+# Model Architecture
+#==============================================================================
+# Embedding configuration
 embedding:
-  type: lookup
-  embedding_dim: 64
+  type: lookup                                # Simple lookup table embeddings
+  embedding_dim: 64                           # Dimension of embedding vectors
 
-# Stage 3 – encoder / tower
+# Encoder configuration
 encoder:
-  arch: mean
-  hidden_dim: 128
-  tied_weights: false  # Whether to share weights between query and document towers
-
-# Stage 4 - loss function
+  arch: cnn                                   # CNN-based architecture
+  hidden_dim: 128                             # Hidden layer dimension size
+  tied_weights: true                          # Share weights between query and doc towers
+  
+#==============================================================================
+# Loss Function
+#==============================================================================
 loss:
-  type: triplet
-  margin: 0.2
-
-# Training parameters
-batch_size: 256
-epochs: 3
+  type: triplet                               # Triplet contrastive loss
+  margin: 0.2                                 # Margin for triplet loss
+  
+#==============================================================================
+# Training Parameters
+#==============================================================================
+batch_size: 256                               # Training batch size
+epochs: 3                                     # Number of training epochs
 optimizer:
-  type: adamw
-  lr: 1e-3
+  type: adamw                                 # AdamW optimizer
+  lr: 0.001                                   # Learning rate
+  
+#==============================================================================
+# Logging and Metrics
+#==============================================================================
+use_wandb: true                               # Enable Weights & Biases logging
 
 # W&B configuration
-use_wandb: true  # Set to true to enable W&B logging
 wandb:
-  project: two-tower-retrieval
-  entity: azuremis  # Set to your username or team name 
+  project: two-tower-retrieval                # W&B project name
+  entity: azuremis                            # W&B username or team name 

@@ -1,38 +1,53 @@
-# paths
-data: data/processed/classic_triplets.parquet
-device: cuda
-checkpoint_dir: checkpoints
+# MS MARCO Configuration
+# 
+# Configuration for training with the MS MARCO dataset.
+# Optimized for query-document retrieval with mean pooling architecture.
 
-# Tokeniser
+extends: default_config.yml
+
+#==============================================================================
+# Tokenizer Configuration
+#==============================================================================
 tokeniser:
-  type: char
-  max_len: 64
+  type: char                                  # Character-level tokenization
+  max_len: 64                                 # Maximum sequence length
 
-# Embedding
+#==============================================================================
+# Model Architecture
+#==============================================================================
+# Embedding configuration
 embedding:
-  type: lookup
-  embedding_dim: 64
+  type: lookup                                # Simple lookup table embeddings
+  embedding_dim: 64                           # Dimension of embedding vectors
 
-# Encoder
+# Encoder configuration
 encoder:
-  arch: mean
-  hidden_dim: 128
-  tied_weights: false
+  arch: mean                                  # Mean pooling architecture
+  hidden_dim: 128                             # Hidden layer dimension size
+  tied_weights: false                         # Use separate weights for query and doc towers
 
-# Loss
+#==============================================================================
+# Loss Function
+#==============================================================================
 loss:
-  type: triplet
-  margin: 0.2
+  type: triplet                               # Triplet contrastive loss
+  margin: 0.2                                 # Margin for triplet loss
 
-# Training
-batch_size: 256
-epochs: 3
+#==============================================================================
+# Training Parameters
+#==============================================================================
+batch_size: 256                               # Training batch size
+epochs: 3                                     # Number of training epochs
 optimizer:
-  type: adamw
-  lr: 0.001
+  type: adamw                                 # AdamW optimizer
+  lr: 0.001                                   # Learning rate
 
-# W&B
-use_wandb: true
+#==============================================================================
+# Logging and Metrics
+#==============================================================================
+use_wandb: true                               # Enable Weights & Biases logging
+
+# W&B configuration
 wandb:
-  project: two-tower-retrieval
-  entity: azuremis 
+  project: two-tower-retrieval                # W&B project name
+  entity: azuremis                            # W&B username or team name 

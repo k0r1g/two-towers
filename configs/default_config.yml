@@ -1,0 +1,41 @@
+# Default Configuration
+# 
+# Base configuration for all Two-Tower experiments.
+# All other configurations extend from this one.
+
+#==============================================================================
+# Data and Resources
+#==============================================================================
+data: data/processed/classic_triplets.parquet  # Path to training data (parquet format)
+device: cuda                                   # Device for training ('cuda' or 'cpu')
+checkpoint_dir: "checkpoints"                  # Directory to save model checkpoints
+
+#==============================================================================
+# Weights & Biases Settings
+#==============================================================================
+wandb:
+  project: "two-tower-retrieval"              # W&B project name
+  entity: "azuremis"                          # W&B username or team name
+
+#==============================================================================
+# Model Defaults
+#==============================================================================
+# Embedding configuration
+embedding:
+  embedding_dim: 64                           # Dimension of embedding vectors
+
+# Encoder configuration
+encoder:
+  hidden_dim: 128                             # Hidden layer dimension size
+
+#==============================================================================
+# Training Parameters
+#==============================================================================
+batch_size: 256                               # Training batch size
+learning_rate: 1e-3                           # Learning rate for optimizer
+epochs: 3                                     # Number of training epochs
+
+#==============================================================================
+# Other Settings
+#==============================================================================
+max_sequence_length: 64                       # Maximum sequence length for inputs 

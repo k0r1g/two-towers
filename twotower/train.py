@@ -26,15 +26,27 @@ from .dataset import TripletDataset
 from .losses import build as build_loss
 from .utils import setup_logging, log_tensor_info, save_config, load_config, save_checkpoint, Timer
 
-# Import from config (for defaults)
+# Load default config from YAML file
 try:
-    from config import (
-        WANDB_PROJECT, WANDB_ENTITY, DEFAULT_BATCH_SIZE, 
-        DEFAULT_LEARNING_RATE, DEFAULT_EPOCHS, DEFAULT_EMBEDDING_DIM, 
-        DEFAULT_HIDDEN_DIM, CHECKPOINTS_DIR, MAX_SEQUENCE_LENGTH
-    )
-except ImportError:
-    # Fallback defaults if config.py not found
+    # Try to load the default config file
+    DEFAULT_CONFIG = load_config("configs/default_config.yml")
+    
+    # Extract constants from the config
+    WANDB_PROJECT = DEFAULT_CONFIG["wandb"]["project"]
+    WANDB_ENTITY = DEFAULT_CONFIG["wandb"]["entity"]
+    DEFAULT_BATCH_SIZE = DEFAULT_CONFIG["batch_size"]
+    DEFAULT_LEARNING_RATE = DEFAULT_CONFIG["learning_rate"]
+    DEFAULT_EPOCHS = DEFAULT_CONFIG["epochs"]
+    DEFAULT_EMBEDDING_DIM = DEFAULT_CONFIG["embedding"]["embedding_dim"]
+    DEFAULT_HIDDEN_DIM = DEFAULT_CONFIG["encoder"]["hidden_dim"]
+    CHECKPOINTS_DIR = DEFAULT_CONFIG["checkpoint_dir"]
+    MAX_SEQUENCE_LENGTH = DEFAULT_CONFIG["max_sequence_length"]
+except (FileNotFoundError, KeyError) as e:
+    # Fallback defaults if config file not found or missing keys
+    logger = logging.getLogger('twotower.train')
+    logger.warning(f"Could not load default config: {str(e)}")
+    logger.warning("Using fallback default values")
+    
     WANDB_PROJECT = "two-tower-retrieval"
     WANDB_ENTITY = None
     DEFAULT_BATCH_SIZE = 256
