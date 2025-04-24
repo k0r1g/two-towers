@@ -23,6 +23,7 @@ import random
 from pathlib import Path
 import logging
 import pandas as pd
+import yaml
 
 # Import from dataset_factory
 from dataset_factory import (
@@ -34,6 +35,46 @@ from dataset_factory import (
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('train_with_msmarco')
+
+def find_preset_file(preset_path):
+    """Find a preset file, trying common variations if the exact path doesn't exist."""
+    # First check if the exact path exists
+    if os.path.exists(preset_path):
+        return preset_path
+    
+    # Get the directory and filename
+    preset_dir = os.path.dirname(preset_path) or '.'
+    preset_name = os.path.basename(preset_path)
+    
+    # Remove the extension if it exists
+    preset_base = os.path.splitext(preset_name)[0]
+    
+    # Try common variations
+    variations = [
+        f"{preset_base}.yml",
+        f"{preset_base}.yaml",
+        f"{preset_base}_preset.yml",
+        f"{preset_base}_preset.yaml"
+    ]
+    
+    # Check for other files in the directory with similar names
+    if os.path.exists(preset_dir):
+        for filename in os.listdir(preset_dir):
+            if filename.startswith(preset_base) and filename.endswith(('.yml', '.yaml')):
+                full_path = os.path.join(preset_dir, filename)
+                logger.info(f"Found possible preset file match: {full_path}")
+                return full_path
+    
+    # Try the variations
+    for var in variations:
+        var_path = os.path.join(preset_dir, var)
+        if os.path.exists(var_path):
+            logger.info(f"Found preset file at {var_path}")
+            return var_path
+    
+    # If we get here, none of the variations exists either
+    logger.warning(f"Could not find preset file at {preset_path} or any common variations")
+    return preset_path  # Return the original path for consistent error messaging
 
 def main():
     parser = argparse.ArgumentParser(description="Train with MS MARCO dataset")
@@ -57,8 +98,31 @@ def main():
     
     args = parser.parse_args()
 
+    # Find the preset file, looking for common variations if needed
+    preset_path = find_preset_file(args.preset)
+    
+    # Verify the preset file exists and is valid
+    if not os.path.exists(preset_path):
+        logger.error(f"Preset file {preset_path} not found. Please specify a valid preset file.")
+        return
+    
+    try:
+        # Validate that the preset file is a valid YAML file
+        with open(preset_path, 'r') as f:
+            preset_config = yaml.safe_load(f)
+            
+        # Basic validation
+        required_keys = ['positive_selector', 'negative_sampler', 'negatives_per_pos']
+        missing_keys = [key for key in required_keys if key not in preset_config]
+        if missing_keys:
+            logger.warning(f"Preset file {preset_path} is missing required keys: {missing_keys}")
+    except Exception as e:
+        logger.warning(f"Error validating preset file {preset_path}: {str(e)}")
+        
+    # Get the preset name without directory or extension for file naming
+    preset_name = Path(preset_path).stem
+    
     # Define file paths
-    preset_name = Path(args.preset).stem
     triplets_file = f"{args.split}_{preset_name}.parquet"
     triplets_parquet = Path(f"data/processed/{triplets_file}")
     
@@ -85,7 +149,7 @@ def main():
             # Use the build_dataset module to create the triplets
             cmd = [
                 "python", "-m", "dataset_factory.build_dataset",
-                "--preset", args.preset,
+                "--preset", preset_path,
                 "--split", args.split,
                 "--output", str(triplets_parquet)
             ]
