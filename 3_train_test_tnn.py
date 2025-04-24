@@ -16,7 +16,7 @@ wandb.init(
     entity="dtian",
     config={
         "hidden_dim": 128,
-        "batch_size": 1000,
+        "batch_size": 1000, #1200, #1000, 128
         "epochs": 20,
         "max_query_len": 10, #20,
         "max_passage_len": 100, #200,
@@ -259,7 +259,7 @@ def train_validate_test():
         # Early stopping check
         if val_acc > best_val_acc:
             best_val_acc = val_acc
-            torch.save(model.state_dict(), "best_two_tower_model.pt")
+            torch.save(model, "best_two_tower_model.pt")
             wandb.save("best_two_tower_model.pt")
             patience_counter = 0
         else:
@@ -269,7 +269,8 @@ def train_validate_test():
                 break
     # Load best model for final evaluation
     print("evaluate model on test set")
-    model.load_state_dict(torch.load("best_two_tower_model.pt"))
+    model=torch.load("best_two_tower_model.pt")
+    model.eval() #switch to inference mode
     test_data = load_dataset("microsoft/ms_marco", "v1.1", split="test")
     test_dataset = TripletDataset(test_data, word_to_id, embedding_matrix, config.max_query_len, config.max_passage_len)
     test_loader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=False, collate_fn=collate_batch, pin_memory=True)
