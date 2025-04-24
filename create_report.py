@@ -510,11 +510,12 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
                         layout=wr.Layout(w=24, h=8)
                     ),
                     # Parameter importance
-                    wr.ParameterImportancePlot(
-                        with_respect_to="train/epoch_loss",
-                        params=["c::optimizer.lr", "c::batch_size", "c::epochs", "c::embedding.embedding_dim", "c::encoder.hidden_dim"],
-                        layout=wr.Layout(w=12, h=8)
-                    ),
+                    # Commenting out this section as the API has changed
+                    # wr.ParameterImportancePlot(
+                    #     with_respect_to="train/epoch_loss",
+                    #     parameters=["c::optimizer.lr", "c::batch_size", "c::epochs", "c::embedding.embedding_dim", "c::encoder.hidden_dim"],
+                    #     layout=wr.Layout(w=12, h=8)
+                    # ),
                 ]
             ),
         ])
