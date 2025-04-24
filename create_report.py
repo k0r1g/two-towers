@@ -1,8 +1,22 @@
 #!/usr/bin/env python
 """
-Create a Weights & Biases report for two-tower model experiments.
-This script generates a comprehensive report that visualizes model performance,
-training dynamics, and retrieval results.
+Create W&B reports for Two-Tower model runs.
+
+This script helps generate detailed visualization reports for Two-Tower model training runs,
+providing insights into model performance, training dynamics, and dataset properties.
+
+Usage:
+    # Create a report for a single run
+    python create_report.py single --run-id RUN_ID 
+    
+    # Create a comparison report for multiple runs
+    python create_report.py compare --run-ids RUN_ID1 RUN_ID2
+    
+    # Create a comparison report for 5 most recent runs
+    python create_report.py compare
+    
+Requirements:
+    pip install wandb wandb-workspaces
 """
 
 import os
@@ -15,121 +29,165 @@ import glob
 from pathlib import Path
 import datetime
 import yaml
+from typing import List, Optional
+import sys
+import traceback
 
 # Import config settings
 from config import WANDB_PROJECT, WANDB_ENTITY
 
+# Make sure you have the latest wandb_workspaces package:
+# pip install --upgrade wandb wandb-workspaces
+
 # Get the logger from the main script
 logger = logging.getLogger('two_tower')
 
-def find_experiment_files(run_id=None):
+def find_experiment_files(run_id=None, number=5):
     """
-    Find experiment files (configs, summaries, dataset genealogy) related to a run.
+    Find experiment files in the workspace. 
+    If run_id is provided, will look for files related to that specific run.
+    Otherwise returns the most recent experiment files.
     
     Args:
-        run_id: Optional W&B run ID to search for
-    
+        run_id (str, optional): W&B run ID to filter files
+        number (int, optional): Number of files to return if run_id not specified
+        
     Returns:
-        Dictionary of experiment files found
+        list: List of experiment file paths sorted by recency
     """
-    experiment_files = {
-        "configs": [],
-        "summaries": [],
-        "dataset_genealogy": []
-    }
-    
-    logs_dir = Path("logs")
-    if not logs_dir.exists():
-        logger.warning("Logs directory not found")
-        return experiment_files
-    
-    # Find all config files
-    experiment_files["configs"] = list(logs_dir.glob("config_*.yml"))
-    
-    # Find all experiment summary files
-    experiment_files["summaries"] = list(logs_dir.glob("experiment_summary_*.json"))
-    
-    # Find all dataset genealogy files
-    experiment_files["dataset_genealogy"] = list(logs_dir.glob("dataset_genealogy_*.json"))
-    
-    # If run_id is provided, filter to only include files related to that run
-    if run_id:
-        # Try to find the actual experiment ID from run_id
-        api = wandb.Api()
-        try:
-            run = api.run(f"{WANDB_ENTITY}/{WANDB_PROJECT}/{run_id}")
-            if 'experiment' in run.config and 'id' in run.config['experiment']:
-                experiment_id = run.config['experiment']['id']
-                logger.info(f"Found experiment ID {experiment_id} for run {run_id}")
-                
-                # Filter files to those containing the experiment ID
-                experiment_files["configs"] = [f for f in experiment_files["configs"] if experiment_id in f.name]
-                experiment_files["summaries"] = [f for f in experiment_files["summaries"] if experiment_id in f.name]
-                experiment_files["dataset_genealogy"] = [f for f in experiment_files["dataset_genealogy"] if experiment_id in f.name]
-        except Exception as e:
-            logger.warning(f"Error retrieving run {run_id}: {str(e)}")
-    
-    logger.info(f"Found {len(experiment_files['configs'])} config files")
-    logger.info(f"Found {len(experiment_files['summaries'])} experiment summary files")
-    logger.info(f"Found {len(experiment_files['dataset_genealogy'])} dataset genealogy files")
-    
-    return experiment_files
+    try:
+        # Get all experiment files
+        experiment_files = glob.glob("experiments/*.json")
+        
+        # Sort by modification time (most recent first)
+        experiment_files.sort(key=os.path.getmtime, reverse=True)
+        
+        if not experiment_files:
+            logger.warning("No experiment files found in the experiments/ directory")
+            return []
+            
+        if run_id:
+            # Filter files that contain the run_id
+            matching_files = []
+            for file_path in experiment_files:
+                try:
+                    with open(file_path, 'r') as f:
+                        data = json.load(f)
+                        if 'wandb_run_id' in data and data['wandb_run_id'] == run_id:
+                            matching_files.append(file_path)
+                except Exception as e:
+                    logger.warning(f"Error reading experiment file {file_path}: {str(e)}")
+                    continue
+                    
+            if matching_files:
+                logger.info(f"Found {len(matching_files)} experiment files matching run_id {run_id}")
+                return matching_files
+            else:
+                logger.warning(f"No experiment files found with run_id {run_id}")
+                return []
+        else:
+            # Return the most recent files up to the specified number
+            logger.info(f"Returning {min(number, len(experiment_files))} most recent experiment files")
+            return experiment_files[:number]
+            
+    except Exception as e:
+        logger.error(f"Error finding experiment files: {str(e)}")
+        logger.error(traceback.format_exc())
+        return []
 
 def create_two_tower_report(project_name=None, entity=None, title=None, description=None, run_id=None):
     """
-    Create a W&B report for a two-tower retrieval model project.
+    Create a W&B report for the two-tower model results
     
     Args:
-        project_name: Name of the W&B project (defaults to config.WANDB_PROJECT)
-        entity: W&B username or team name (defaults to config.WANDB_ENTITY)
-        title: Custom title for the report (optional)
-        description: Description for the report (optional)
-        run_id: The ID of the current run to highlight in the report (optional)
-    
+        project_name (str, optional): W&B project name. Defaults to config value.
+        entity (str, optional): W&B entity (username or team). Defaults to config value.
+        title (str, optional): Report title. Defaults to generated title.
+        description (str, optional): Report description. Defaults to generated description.
+        run_id (str, optional): W&B run ID to create report for. If None, will try to use current run.
+        
     Returns:
-        URL to the created report
+        str: URL to the created report or None if failed
     """
     try:
-        # Use config defaults if not provided
+        # Set default project and entity if not provided
         project_name = project_name or WANDB_PROJECT
         
-        # Initialize the report
-        report_title = title or f"Two-Tower Model Performance Report"
-        report_description = description or (
-            "This report analyzes the performance of the two-tower retrieval model. The model "
-            "consists of two encoder networks (towers) that map queries and documents into a "
-            "shared embedding space, where relevant pairs are positioned closer together than "
-            "irrelevant ones."
-        )
-        
-        # Use the current run if run_id is not provided
-        if run_id is None and wandb.run is not None:
-            run_id = wandb.run.id
-        
-        # Get entity from current run, config, or default to the currently logged in user
+        # Try to get entity with fallbacks
         if entity is None:
-            if wandb.run is not None:
-                entity = wandb.run.entity
-            elif WANDB_ENTITY is not None:
+            try:
+                if wandb.run is not None:
+                    entity = wandb.run.entity
+                    logger.info(f"Using entity from current wandb.run: {entity}")
+                else:
+                    # Try to get default entity from API
+                    api = wandb.Api()
+                    entity = api.default_entity
+                    logger.info(f"Using default entity from wandb.Api(): {entity}")
+            except Exception as e:
+                logger.warning(f"Error getting default entity: {str(e)}")
                 entity = WANDB_ENTITY
-            else:
-                # Get the default entity (current user) from W&B
-                api = wandb.Api()
-                entity = api.default_entity or "user"
-                logger.info(f"No entity provided, using default entity: {entity}")
+                logger.info(f"Falling back to config entity: {entity}")
+        
+        # Handle missing run_id
+        if run_id is None:
+            logger.warning("No run_id provided")
             
-        logger.info(f"Creating W&B report for project {project_name} with entity {entity} and run_id {run_id}")
+            # Try to use current run
+            if wandb.run is not None:
+                run_id = wandb.run.id
+                logger.info(f"Using current wandb.run id: {run_id}")
+            else:
+                # Try to get the most recent run from the project
+                logger.info("Attempting to find most recent run from API")
+                try:
+                    api = wandb.Api()
+                    runs = api.runs(f"{entity}/{project_name}", per_page=1)
+                    if len(runs) > 0:
+                        run_id = runs[0].id
+                        logger.info(f"Using most recent run from project: {run_id}")
+                    else:
+                        logger.error(f"No runs found in project {entity}/{project_name}")
+                        return None
+                except Exception as e:
+                    logger.error(f"Error fetching runs from API: {str(e)}")
+                    logger.error(traceback.format_exc())
+                    return None
+        
+        # Log diagnostic information 
+        logger.info(f"Creating report for run: {run_id}")
+        logger.info(f"W&B config - project: {project_name}, entity: {entity}")
         
         # Find experiment files
         experiment_files = find_experiment_files(run_id)
+        if not experiment_files:
+            logger.warning(f"No experiment files found for run {run_id}")
+        else:
+            logger.info(f"Found {len(experiment_files)} experiment files")
+        
+        # Get run details from W&B API
+        try:
+            api = wandb.Api()
+            run = api.run(f"{entity}/{project_name}/{run_id}")
+            logger.info(f"Retrieved run from API: {run.name}")
+        except Exception as e:
+            logger.error(f"Error retrieving run from W&B API: {str(e)}")
+            logger.error(traceback.format_exc())
+            return None
+            
+        # Set default title and description if not provided
+        if title is None:
+            title = f"Two-Tower Model Analysis: {run.name}"
+        if description is None:
+            description = f"Performance analysis for two-tower model run {run.name} ({run_id})"
         
         # Try to load dataset genealogy for this run if available
         dataset_genealogy = None
-        if experiment_files["dataset_genealogy"]:
+        if experiment_files:
             try:
-                with open(experiment_files["dataset_genealogy"][0], 'r') as f:
+                with open(experiment_files[0], 'r') as f:
                     dataset_genealogy = json.load(f)
-                logger.info(f"Loaded dataset genealogy from {experiment_files['dataset_genealogy'][0]}")
+                logger.info(f"Loaded dataset genealogy from {experiment_files[0]}")
             except Exception as e:
                 logger.warning(f"Error loading dataset genealogy: {str(e)}")
         
@@ -137,8 +195,8 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
         report = wr.Report(
             project=project_name,
             entity=entity,
-            title=report_title, 
-            description=report_description,
+            title=title, 
+            description=description,
             width='fluid'  # Make the report full width for better visualization
         )
         
@@ -226,8 +284,7 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
                 wr.PanelGrid(
                     panels=[
                         wr.MarkdownPanel(
-                            title="Dataset Genealogy",
-                            text=(
+                            markdown=(
                                 f"**Experiment ID:** {dataset_genealogy.get('experiment_id', 'N/A')}\n\n"
                                 f"**MS MARCO Split:** {dataset_genealogy.get('ms_marco_split', 'N/A')}\n\n"
                                 f"**Preset File:** {dataset_genealogy.get('preset_file', 'N/A')}\n\n"
@@ -399,7 +456,7 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
                 panels=[
                     # Config details
                     wr.RunComparer(
-                        diff_only=False,
+                        diff_only='split',
                         layout=wr.Layout(w=24, h=15)
                     ),
                 ]
@@ -475,9 +532,8 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
                 wr.PanelGrid(
                     panels=[
                         # Dataset statistics and genealogy
-                        wr.TextPanel(
-                            title="Dataset Statistics",
-                            text=(
+                        wr.MarkdownPanel(
+                            markdown=(
                                 f"**Dataset Source**: MS MARCO ({dataset_genealogy.get('ms_marco_split', 'N/A')} split)\n\n"
                                 f"**Sampling Rate**: {dataset_genealogy.get('sample_size', 'All')} samples\n\n"
                                 f"**Triplets Format**: {dataset_genealogy.get('triplets_info', {}).get('row_count', 'N/A')} query-positive-negative triplets\n\n"
@@ -487,8 +543,7 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
                         ),
                         # Dataset preprocessing visualization
                         wr.MarkdownPanel(
-                            title="Dataset Preparation Pipeline",
-                            text=(
+                            markdown=(
                                 "```mermaid\nflowchart TD\n" +
                                 "A[MS MARCO Dataset] --> B[Convert to Parquet]\n" +
                                 f"B --> C[Create Triplets Format\\n{dataset_genealogy.get('triplets_info', {}).get('row_count', '?')} triplets]\n" +
@@ -557,7 +612,7 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
         ])
         
         # Add experiment lineage if multiple related experiments
-        if len(experiment_files["summaries"]) > 1:
+        if len(experiment_files) > 1:
             report.blocks.extend([
                 wr.H1(text="⏱️ Experiment Lineage"),
                 wr.MarkdownBlock(text=(
@@ -572,13 +627,13 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
             try:
                 # Load experiment summaries
                 experiment_summaries = []
-                for summary_file in experiment_files["summaries"]:
+                for file_path in experiment_files:
                     try:
-                        with open(summary_file, 'r') as f:
+                        with open(file_path, 'r') as f:
                             summary = json.load(f)
                             experiment_summaries.append(summary)
                     except Exception as e:
-                        logger.warning(f"Error loading experiment summary {summary_file}: {str(e)}")
+                        logger.warning(f"Error loading experiment summary {file_path}: {str(e)}")
                 
                 # Sort by timestamp
                 experiment_summaries.sort(key=lambda x: x.get("timestamp", ""))
@@ -615,8 +670,7 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
                     wr.PanelGrid(
                         panels=[
                             wr.MarkdownPanel(
-                                title="Experiment Timeline",
-                                text=timeline_markdown,
+                                markdown=timeline_markdown,
                                 layout=wr.Layout(w=24, h=12)
                             ),
                         ]
@@ -635,14 +689,250 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
         except Exception as e:
             logger.error(f"Error saving report: {str(e)}")
             logger.error(f"Report details - project: {project_name}, entity: {entity}, run_id: {run_id}")
-            import traceback
-            logger.error(f"Traceback: {traceback.format_exc()}")
+            logger.error(traceback.format_exc())
             return None
     except Exception as e:
         logger.error(f"Error creating report: {str(e)}")
         logger.error(f"Report details - project: {project_name}, entity: {entity}, run_id: {run_id}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
+        logger.error(traceback.format_exc())
+        return None
+
+def create_comparison_report(project_name=None, entity=None, title=None, description=None, run_ids=None):
+    """
+    Create a W&B report comparing multiple two-tower model runs
+    
+    Args:
+        project_name (str, optional): W&B project name. Defaults to config value.
+        entity (str, optional): W&B entity (username or team). Defaults to config value.
+        title (str, optional): Report title. Defaults to generated title.
+        description (str, optional): Report description. Defaults to generated description.
+        run_ids (list, optional): List of W&B run IDs to compare. If None, will try to find recent runs.
+        
+    Returns:
+        str: URL to the created report or None if failed
+    """
+    try:
+        # Set default project and entity if not provided
+        project_name = project_name or WANDB_PROJECT
+        
+        # Try to get entity with fallbacks
+        if entity is None:
+            try:
+                if wandb.run is not None:
+                    entity = wandb.run.entity
+                    logger.info(f"Using entity from current wandb.run: {entity}")
+                else:
+                    # Try to get default entity from API
+                    api = wandb.Api()
+                    entity = api.default_entity
+                    logger.info(f"Using default entity from wandb.Api(): {entity}")
+            except Exception as e:
+                logger.warning(f"Error getting default entity: {str(e)}")
+                entity = WANDB_ENTITY
+                logger.info(f"Falling back to config entity: {entity}")
+        
+        # Handle missing run_ids
+        if run_ids is None or len(run_ids) == 0:
+            logger.warning("No run_ids provided for comparison")
+            
+            # Try to get the most recent runs from the project
+            logger.info("Attempting to find recent runs from API")
+            try:
+                api = wandb.Api()
+                runs = api.runs(f"{entity}/{project_name}", per_page=5)
+                if len(runs) > 0:
+                    run_ids = [run.id for run in runs]
+                    logger.info(f"Using {len(run_ids)} most recent runs for comparison")
+                else:
+                    logger.error(f"No runs found in project {entity}/{project_name}")
+                    return None
+            except Exception as e:
+                logger.error(f"Error fetching runs from API: {str(e)}")
+                logger.error(traceback.format_exc())
+                return None
+                
+        # Validate we have at least 2 runs to compare
+        if len(run_ids) < 2:
+            logger.error(f"Need at least 2 runs for comparison, only found {len(run_ids)}")
+            return None
+        
+        # Log diagnostic information
+        logger.info(f"Creating comparison report for runs: {run_ids}")
+        logger.info(f"W&B config - project: {project_name}, entity: {entity}")
+        
+        # Get run details from W&B API
+        try:
+            api = wandb.Api()
+            runs = []
+            for run_id in run_ids:
+                run = api.run(f"{entity}/{project_name}/{run_id}")
+                runs.append(run)
+            logger.info(f"Retrieved {len(runs)} runs from API")
+            
+            # Set default title and description if not provided
+            if title is None:
+                title = f"Two-Tower Model Comparison: {len(runs)} Runs"
+            if description is None:
+                description = f"Comparative analysis of {len(runs)} different two-tower model runs"
+                
+        except Exception as e:
+            logger.error(f"Error retrieving runs from W&B API: {str(e)}")
+            logger.error(traceback.format_exc())
+            return None
+        
+        # Create the report
+        logger.info("Creating W&B comparison report...")
+        import wandb_workspaces.reports.v2 as wr
+        
+        report = wr.Report(
+            project=project_name,
+            entity=entity,
+            title=title,
+            description=description,
+            width='fluid'  # Make the report full width for better visualization
+        )
+        
+        # Create runsets for multiple runs
+        runset_all = None
+        try:
+            if run_ids:
+                # Create a runset directly with entity, project parameters
+                # Use a query string to filter by run IDs
+                query = " OR ".join([f"id={run_id}" for run_id in run_ids])
+                runset_all = wr.Runset(
+                    entity=entity,
+                    project=project_name,
+                    name="All Compared Runs",
+                    query=query
+                )
+                logger.info(f"Created runset with {len(run_ids)} runs")
+            else:
+                logger.error("No run IDs provided, cannot create comparison report")
+                return None
+        except Exception as e:
+            logger.error(f"Error creating runset: {str(e)}")
+            logger.error(traceback.format_exc())
+            return None
+        
+        # Build the report structure with error handling
+        try:
+            # Create the report structure
+            report.blocks = [
+                wr.TableOfContents(),  # Table of contents
+                
+                # Introduction section
+                wr.H1("Two-Tower Model Comparison"),
+                wr.P(text="""
+                This report compares multiple runs of the two-tower model, analyzing their performance,
+                training dynamics, and embedding characteristics to identify the most effective configurations.
+                """),
+                
+                # Run Information
+                wr.H2("Run Information"),
+                wr.P(text="Detailed information about the run configuration and parameters:"),
+                wr.PanelGrid(
+                    runsets=[runset_all],
+                    panels=[
+                        wr.RunComparer(diff_only=True)
+                    ]
+                ),
+                
+                # Performance Metrics section
+                wr.H2("Performance Metrics"),
+                wr.P(text="Comparison of key metrics across runs to identify performance patterns."),
+                
+                # Use PanelGrid for comparing metrics
+                wr.PanelGrid(
+                    runsets=[runset_all],
+                    panels=[
+                        wr.LinePlot(
+                            title="Training Loss",
+                            x="Step",
+                            y=["train/loss"], 
+                            smoothing_factor=0.2
+                        ),
+                        wr.LinePlot(
+                            title="Validation Loss",
+                            x="Step",
+                            y=["val/loss"], 
+                            smoothing_factor=0.2
+                        ),
+                        wr.LinePlot(
+                            title="Mean Reciprocal Rank (MRR)",
+                            x="Step",
+                            y=["val/mrr"], 
+                            smoothing_factor=0.2
+                        ),
+                        wr.LinePlot(
+                            title="Mean Average Precision (MAP)",
+                            x="Step",
+                            y=["val/map"], 
+                            smoothing_factor=0.2
+                        ),
+                        wr.LinePlot(
+                            title="Hit Rate @ 5",
+                            x="Step",
+                            y=["val/hit_rate@5"], 
+                            smoothing_factor=0.2
+                        ),
+                        wr.LinePlot(
+                            title="Hit Rate @ 10",
+                            x="Step",
+                            y=["val/hit_rate@10"], 
+                            smoothing_factor=0.2
+                        ),
+                    ]
+                ),
+                
+                # PanelGrid for analysis over time or batch
+                wr.H2("Training Dynamics"),
+                wr.P(text="Examining how models evolved during training can reveal patterns in convergence rate and stability."),
+                wr.PanelGrid(
+                    runsets=[runset_all],
+                    panels=[
+                        wr.LinePlot(
+                            title="Learning Rate",
+                            x="Step",
+                            y=["train/learning_rate"]
+                        ),
+                        wr.LinePlot(
+                            title="Batch Size",
+                            x="Step",
+                            y=["train/batch_size"]
+                        ),
+                        wr.LinePlot(
+                            title="Gradient Norm",
+                            x="Step",
+                            y=["train/grad_norm"],
+                            smoothing_factor=0.2
+                        )
+                    ]
+                ),
+                
+                # Conclusion
+                wr.H2("Conclusion"),
+                wr.P(text="This report was automatically generated to compare the performance of different runs of the two-tower model.")
+            ]
+            
+            # Save the report
+            logger.info("Saving comparison report...")
+            url = report.save()
+            logger.info(f"Comparison report saved successfully at: {url}")
+            
+            # Display instructions for accessing the report
+            print(f"\nComparison report created and available at: {url}")
+            print("This report compares the selected model runs and provides insights into performance differences.")
+            
+            return url
+        
+        except Exception as e:
+            logger.error(f"Error creating or saving comparison report: {str(e)}")
+            logger.error(traceback.format_exc())
+            return None
+    
+    except Exception as e:
+        logger.error(f"Unexpected error in create_comparison_report: {str(e)}")
+        logger.error(traceback.format_exc())
         return None
 
 # Add a basic configure_logging function for when this script is run directly
@@ -657,34 +947,109 @@ def configure_logging():
     global logger
     logger = logging.getLogger('two_tower_report')
 
-if __name__ == "__main__":
-    configure_logging()
-    parser = argparse.ArgumentParser(description="Create a W&B report for two-tower model experiments")
-    parser.add_argument("--project", type=str, default=WANDB_PROJECT, help="W&B project name")
-    parser.add_argument("--entity", type=str, default=WANDB_ENTITY, help="W&B username or team name")
-    parser.add_argument("--title", type=str, default=None, help="Custom title for the report")
-    parser.add_argument("--description", type=str, default=None, help="Description for the report")
-    parser.add_argument("--run-id", type=str, default=None, help="W&B run ID to focus on in the report")
+def main():
+    """
+    Main function to parse arguments and create reports.
+    """
+    parser = argparse.ArgumentParser(description="Create W&B reports for Two-Tower model experiments")
     
+    # Common arguments
+    parser.add_argument("--project", default="two-towers", help="W&B project name")
+    parser.add_argument("--entity", default=None, help="W&B entity (username or team name)")
+    parser.add_argument("--title", default=None, help="Report title")
+    parser.add_argument("--description", default=None, help="Report description")
+    
+    # Subcommands
+    subparsers = parser.add_subparsers(dest="command", help="Command to run")
+    
+    # Single report command
+    single_parser = subparsers.add_parser("single", help="Create a report for a single run")
+    single_parser.add_argument("--run-id", required=True, help="W&B run ID for the report")
+    
+    # Comparison report command
+    compare_parser = subparsers.add_parser("compare", help="Create a comparison report for multiple runs")
+    compare_parser.add_argument("--run-ids", nargs="+", help="List of W&B run IDs to include in comparison")
+    compare_parser.add_argument("--num-recent", type=int, default=5, help="Number of recent runs to compare (if run-ids not specified)")
+    
+    # Parse arguments
     args = parser.parse_args()
     
-    # Login to W&B if running directly
-    if not wandb.api.api_key:
-        logger.info("No W&B API key found. Please log in.")
-        wandb.login()
+    # Check for required command
+    if not args.command:
+        parser.print_help()
+        return
     
-    logger.info(f"Creating report for project {args.project}")
-    report_url = create_two_tower_report(
-        project_name=args.project,
-        entity=args.entity,
-        title=args.title,
-        description=args.description,
-        run_id=args.run_id
-    )
+    try:
+        # Ensure entity is set
+        if not args.entity:
+            try:
+                import wandb
+                if wandb.api.default_entity:
+                    args.entity = wandb.api.default_entity
+                    logger.info(f"Using default W&B entity: {args.entity}")
+                else:
+                    logger.warning("No W&B entity specified and no default found. Using 'None'")
+            except:
+                logger.warning("Could not determine default W&B entity")
+        
+        # Handle single report command
+        if args.command == "single":
+            if not args.run_id:
+                logger.error("Run ID is required for single report")
+                return
+                
+            logger.info(f"Creating report for run ID: {args.run_id}")
+            url = create_two_tower_report(
+                project_name=args.project,
+                entity=args.entity,
+                title=args.title,
+                description=args.description,
+                run_id=args.run_id
+            )
+            
+            if url:
+                print(f"Report created successfully at: {url}")
+            else:
+                print("Failed to create report. See logs for details.")
+        
+        # Handle comparison report command
+        elif args.command == "compare":
+            run_ids = args.run_ids
+            
+            # If no run IDs provided, use most recent runs
+            if not run_ids:
+                try:
+                    import wandb
+                    api = wandb.Api()
+                    runs = list(api.runs(f"{args.entity}/{args.project}", order="-created_at", per_page=args.num_recent))
+                    if runs:
+                        run_ids = [run.id for run in runs]
+                        logger.info(f"Using {len(run_ids)} most recent runs for comparison")
+                    else:
+                        logger.error(f"No runs found in project {args.project}")
+                        return
+                except Exception as e:
+                    logger.error(f"Error fetching recent runs: {str(e)}")
+                    logger.error(traceback.format_exc())
+                    return
+            
+            logger.info(f"Creating comparison report for run IDs: {run_ids}")
+            url = create_comparison_report(
+                project_name=args.project,
+                entity=args.entity,
+                title=args.title,
+                description=args.description,
+                run_ids=run_ids
+            )
+            
+            if url:
+                print(f"Comparison report created successfully at: {url}")
+            else:
+                print("Failed to create comparison report. See logs for details.")
     
-    if report_url:
-        print("\nTo view your report, visit:")
-        print(report_url)
-        print("\nYou can also find it in the Reports tab of your W&B project.")
-    else:
-        print("\nFailed to create report. Check the logs for details.") 
+    except Exception as e:
+        logger.error(f"Unexpected error in main function: {str(e)}")
+        logger.error(traceback.format_exc())
+
+if __name__ == "__main__":
+    main() 

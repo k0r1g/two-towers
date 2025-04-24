@@ -128,7 +128,7 @@ def run_experiment(force_download: bool,
                    batch_size: int, 
                    skip_training: bool, 
                    use_wandb: bool,
-                   config_path: str) -> None:
+                   config_path: str) -> dict:
     """
     Run a single MS MARCO experiment with the given parameters.
     
@@ -144,9 +144,22 @@ def run_experiment(force_download: bool,
         skip_training: Skip model training step
         use_wandb: Enable Weights & Biases logging
         config_path: Path to training config YAML file
+        
+    Returns:
+        Dictionary with experiment results including W&B run ID if available
     """
     # Create a unique experiment ID for tracking
     experiment_id = f"msmarco_{split}_{Path(preset_path).stem}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    
+    # Dictionary to track experiment results
+    experiment_results = {
+        "experiment_id": experiment_id,
+        "split": split,
+        "preset": preset_path,
+        "samples": samples,
+        "success": False,
+        "wandb_run_id": None
+    }
     
     experiment_logger = logging.getLogger(f'msmarco_experiment_{Path(preset_path).stem}_{split}')
     experiment_logger.info(f"Starting experiment with ID: {experiment_id}")
@@ -168,7 +181,7 @@ def run_experiment(force_download: bool,
     # Verify the preset file exists and is valid
     if not os.path.exists(preset_path):
         experiment_logger.error(f"Preset file {preset_path} not found. Please specify a valid preset file.")
-        return
+        return experiment_results
     
     # Track dataset genealogy
     dataset_genealogy = {
@@ -344,7 +357,7 @@ def run_experiment(force_download: bool,
                     })
             else:
                 experiment_logger.error(f"Cannot sample from {triplets_parquet} as it does not exist!")
-                return
+                return experiment_results
         else:
             experiment_logger.info(f"Sampled file {sample_triplets_parquet} already exists. Skipping sampling.")
             # Log info about existing sampled file
@@ -451,34 +464,53 @@ def run_experiment(force_download: bool,
         end_time = time.time()
         experiment_logger.info(f"Training complete! Total time: {end_time - start_time:.2f}s")
         
-        # Generate a report if W&B is enabled
-        if use_wandb and model is not None and hasattr(wandb, 'run') and wandb.run is not None:
-            experiment_logger.info("Generating W&B report for this experiment...")
+        if model is not None:
+            experiment_results["success"] = True
+            
+        # Store W&B run ID if available
+        if use_wandb and hasattr(wandb, 'run') and wandb.run is not None:
+            experiment_results["wandb_run_id"] = wandb.run.id
+            experiment_logger.info(f"Stored W&B run ID: {wandb.run.id}")
+            
+            # Add debug print
+            print(f"\n[DEBUG] About to generate report for run ID: {wandb.run.id}\n")
+            
+            # Generate individual report
+            experiment_logger.info("Generating individual W&B report for this experiment...")
             try:
-                import subprocess
                 report_cmd = [
                     "python", "create_report.py",
+                    "--project", "two-tower-retrieval",
+                    "single",
                     "--run-id", wandb.run.id
                 ]
                 experiment_logger.info(f"Running command: {' '.join(report_cmd)}")
+                print(f"\n[DEBUG] Executing command: {' '.join(report_cmd)}\n")
                 report_process = subprocess.run(report_cmd, capture_output=True, text=True)
+                
+                print(f"\n[DEBUG] Report process returned: {report_process.returncode}\n")
+                print(f"\n[DEBUG] Report stdout: {report_process.stdout[:200]}...\n")
+                print(f"\n[DEBUG] Report stderr: {report_process.stderr[:200]}...\n")
                 
                 if report_process.returncode == 0:
                     # Extract the report URL from the output
                     output_lines = report_process.stdout.strip().split('\n')
                     for line in output_lines:
                         if line.startswith("https://"):
-                            experiment_logger.info(f"Report generated successfully: {line}")
-                            print(f"\n📊 View your experiment report at: {line}\n")
+                            experiment_logger.info(f"Individual report generated: {line}")
+                            experiment_results["report_url"] = line
+                            print(f"\n📊 View experiment report at: {line}\n")
                             break
                 else:
-                    experiment_logger.warning(f"Failed to generate report: {report_process.stderr}")
+                    experiment_logger.warning(f"Failed to generate individual report: {report_process.stderr}")
             except Exception as e:
-                experiment_logger.warning(f"Error generating report: {str(e)}")
+                experiment_logger.warning(f"Error generating individual report: {str(e)}")
+                print(f"\n[DEBUG] Exception during report generation: {str(e)}\n")
     else:
         experiment_logger.info("Skipping model training step...")
     
     experiment_logger.info("Experiment completed successfully!")
+    return experiment_results
 
 def main():
     parser = argparse.ArgumentParser(description="Train with MS MARCO dataset")
@@ -515,6 +547,9 @@ def main():
     parser.add_argument('--parallel', action='store_true', help='Run experiments in parallel')
     parser.add_argument('--max-workers', type=int, default=None, 
                        help='Maximum number of parallel workers (defaults to CPU count)')
+    
+    # Add option to skip report generation
+    parser.add_argument('--skip_reports', action='store_true', help='Skip generating W&B reports')
     
     args = parser.parse_args()
 
@@ -570,6 +605,10 @@ def main():
         logger.info(f"  CUDA device count: {torch.cuda.device_count()}")
         logger.info(f"  CUDA device name: {torch.cuda.get_device_name(0)}")
     
+    # Track all experiment results and W&B run IDs
+    all_experiment_results = []
+    wandb_run_ids = []
+    
     if args.parallel and len(experiments) > 1:
         logger.info("Running experiments in parallel")
         max_workers = args.max_workers or multiprocessing.cpu_count()
@@ -577,23 +616,28 @@ def main():
         max_workers = min(max_workers, len(experiments))
         logger.info(f"Using {max_workers} worker processes")
         
-        # Create arguments for each experiment
-        experiment_args = [
-            (args.force_download, args.skip_prepare, split, preset_path, 
-             args.samples, args.seed, args.epochs, args.batch_size, 
-             args.skip_training, args.wandb, args.config)
-            for split, preset_path in experiments
-        ]
-        
-        # Run experiments in parallel
+        # Create a multiprocessing Pool
         with multiprocessing.Pool(max_workers) as pool:
-            pool.starmap(run_experiment, experiment_args)
+            # Use map instead of starmap to get returned values
+            experiment_args = [
+                (args.force_download, args.skip_prepare, split, preset_path, 
+                 args.samples, args.seed, args.epochs, args.batch_size, 
+                 args.skip_training, args.wandb, args.config)
+                for split, preset_path in experiments
+            ]
+            # Collect all results
+            all_experiment_results = pool.starmap(run_experiment, experiment_args)
+        
+        # Extract W&B run IDs
+        for result in all_experiment_results:
+            if result.get("wandb_run_id"):
+                wandb_run_ids.append(result["wandb_run_id"])
     else:
         logger.info("Running experiments sequentially")
         for split, preset_path in experiments:
             logger.info(f"Starting experiment with split: {split}, preset: {preset_path}")
             start_time = time.time()
-            run_experiment(
+            result = run_experiment(
                 force_download=args.force_download,
                 skip_prepare=args.skip_prepare,
                 split=split,
@@ -606,8 +650,51 @@ def main():
                 use_wandb=args.wandb,
                 config_path=args.config
             )
+            all_experiment_results.append(result)
+            
+            # Extract W&B run ID if available
+            if result.get("wandb_run_id"):
+                wandb_run_ids.append(result["wandb_run_id"])
+                
             end_time = time.time()
             logger.info(f"Experiment completed in {end_time - start_time:.2f}s")
+    
+    # Log experiment results summary
+    logger.info("Experiments summary:")
+    success_count = sum(1 for result in all_experiment_results if result.get("success", False))
+    logger.info(f"Completed {len(all_experiment_results)} experiments, {success_count} successful")
+    
+    # Generate a consolidated report if there are multiple successful W&B runs
+    if len(wandb_run_ids) > 1 and args.wandb and not args.skip_reports:
+        logger.info(f"Generating consolidated comparison report for {len(wandb_run_ids)} W&B runs")
+        try:
+            import subprocess
+            report_cmd = [
+                "python", "create_report.py",
+                "--comparison",
+                "--run-ids"
+            ] + wandb_run_ids
+            
+            logger.info(f"Running command: {' '.join(report_cmd)}")
+            report_process = subprocess.run(report_cmd, capture_output=True, text=True)
+            
+            if report_process.returncode == 0:
+                # Extract the report URL from the output
+                output_lines = report_process.stdout.strip().split('\n')
+                for line in output_lines:
+                    if line.startswith("https://"):
+                        logger.info(f"Consolidated report generated: {line}")
+                        print(f"\n📊 View consolidated comparison report at: {line}\n")
+                        print(f"This report compares all {len(wandb_run_ids)} runs from this execution.")
+                        break
+            else:
+                logger.warning(f"Failed to generate consolidated report: {report_process.stderr}")
+                logger.warning("You can manually generate a comparison report with:")
+                logger.warning(f"python create_report.py --comparison --run-ids {' '.join(wandb_run_ids)}")
+        except Exception as e:
+            logger.error(f"Error generating consolidated report: {str(e)}")
+            logger.info("You can manually generate a comparison report with:")
+            logger.info(f"python create_report.py --comparison --run-ids {' '.join(wandb_run_ids)}")
     
     logger.info("All experiments completed successfully!")
 
