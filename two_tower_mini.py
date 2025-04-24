@@ -40,7 +40,16 @@ from dotenv import load_dotenv
 import logging
 import json
 from pprint import pformat
+from pathlib import Path
 from typing import Dict, List, Tuple, Any, Optional
+
+# Import from dataset_factory
+from dataset_factory import (
+    load_synthetic_dataset, 
+    load_synthetic_tsv, 
+    convert_tsv_to_parquet
+)
+
 # Import config
 from config import (
     WANDB_PROJECT, WANDB_ENTITY, DEFAULT_BATCH_SIZE, 
@@ -140,18 +149,44 @@ class Triplets(torch.utils.data.Dataset):
       logger.info(f"Dataframe columns: {dataframe.columns.tolist()}")
       logger.info(f"Dataframe sample:\n{dataframe.head(3)}")
       
-      queries = dataframe['query'].tolist()
-      documents = dataframe['document'].tolist()
-      labels = dataframe['label'].tolist()
+      # Check if the data is in triplets format or pairs format
+      if all(col in dataframe.columns for col in ['query', 'positive_doc', 'negative_doc']):
+        # Already in triplets format
+        logger.info("Data is already in triplets format")
+        queries = dataframe['query'].tolist()
+        documents = dataframe['positive_doc'].tolist() + dataframe['negative_doc'].tolist()
+        # Create synthetic labels for compatibility (all 1s for positives, all 0s for negatives)
+        labels = [1] * len(dataframe) + [0] * len(dataframe)
+        
+        # Store triplets directly
+        self.triplets = list(zip(
+            dataframe['query'].tolist(),
+            dataframe['positive_doc'].tolist(),
+            dataframe['negative_doc'].tolist()
+        ))
+      else:
+        # Standard pairs format
+        logger.info("Data is in query-document-label format, converting to triplets")
+        queries = dataframe['query'].tolist()
+        documents = dataframe['document'].tolist()
+        labels = dataframe['label'].tolist()
     else:
       # Legacy TSV format
       logger.info("Reading TSV format data")
-      raw_lines = [line.rstrip('\n').split('\t') for line in open(data_path)]
-      logger.info(f"Read {len(raw_lines)} lines from TSV file")
-      logger.info(f"Sample raw lines: {raw_lines[:3]}")
       
-      queries, documents, labels = zip(*raw_lines)
-      labels = [int(label) for label in labels]
+      # Use dataset_factory function to load TSV
+      data_path_obj = Path(data_path)
+      if not data_path_obj.is_absolute():
+        # Assume it's in the raw data directory
+        from dataset_factory.readers import RAW_DATA_DIR
+        data_path = RAW_DATA_DIR / data_path
+      
+      dataframe = load_synthetic_tsv(data_path)
+      logger.info(f"Loaded dataframe with shape: {dataframe.shape}")
+      
+      queries = dataframe['query'].tolist()
+      documents = dataframe['document'].tolist()
+      labels = dataframe['label'].tolist()
     
     logger.info(f"Loaded {len(queries)} query-document pairs")
     logger.info(f"Sample queries: {queries[:3]}")
@@ -162,41 +197,43 @@ class Triplets(torch.utils.data.Dataset):
     all_texts = queries + documents
     self.vocab = vocab if vocab else CharVocab(all_texts)
     
-    # Group queries with positive and negative documents
-    logger.info("Grouping queries with positive and negative documents")
-    query_to_documents = collections.defaultdict(lambda: {'positive': [], 'negative': []})
-    for query, document, label in zip(queries, documents, labels):
-      if label == 1:
-        query_to_documents[query]['positive'].append(document)
-      else:
-        query_to_documents[query]['negative'].append(document)
-    
-    logger.info(f"Created query-document mapping for {len(query_to_documents)} unique queries")
-    
-    # Log sample of query-document mapping
-    sample_queries = list(query_to_documents.keys())[:3]
-    for sample_query in sample_queries:
-        pos_count = len(query_to_documents[sample_query]['positive'])
-        neg_count = len(query_to_documents[sample_query]['negative'])
-        logger.info(f"Query: '{sample_query}' has {pos_count} positive and {neg_count} negative documents")
-        if pos_count > 0:
-            logger.info(f"  Sample positive: '{query_to_documents[sample_query]['positive'][0][:50]}...'")
-        if neg_count > 0:
-            logger.info(f"  Sample negative: '{query_to_documents[sample_query]['negative'][0][:50]}...'")
-    
-    # Create triplets
-    logger.info("Creating query-positive-negative triplets")
-    self.triplets = []
-    queries_with_both = 0
-    
-    for query, docs_dict in query_to_documents.items():
-      if docs_dict['positive'] and docs_dict['negative']:  # Only keep queries with both positive and negative docs
-        queries_with_both += 1
-        for positive_doc in docs_dict['positive']:
-          for negative_doc in docs_dict['negative']:
-            self.triplets.append((query, positive_doc, negative_doc))
-    
-    logger.info(f"Created {len(self.triplets)} triplets from {queries_with_both}/{len(query_to_documents)} unique queries with both pos/neg docs")
+    # If we don't have triplets already, create them
+    if not hasattr(self, 'triplets'):
+      # Group queries with positive and negative documents
+      logger.info("Grouping queries with positive and negative documents")
+      query_to_documents = collections.defaultdict(lambda: {'positive': [], 'negative': []})
+      for query, document, label in zip(queries, documents, labels):
+        if label == 1:
+          query_to_documents[query]['positive'].append(document)
+        else:
+          query_to_documents[query]['negative'].append(document)
+      
+      logger.info(f"Created query-document mapping for {len(query_to_documents)} unique queries")
+      
+      # Log sample of query-document mapping
+      sample_queries = list(query_to_documents.keys())[:3]
+      for sample_query in sample_queries:
+          pos_count = len(query_to_documents[sample_query]['positive'])
+          neg_count = len(query_to_documents[sample_query]['negative'])
+          logger.info(f"Query: '{sample_query}' has {pos_count} positive and {neg_count} negative documents")
+          if pos_count > 0:
+              logger.info(f"  Sample positive: '{query_to_documents[sample_query]['positive'][0][:50]}...'")
+          if neg_count > 0:
+              logger.info(f"  Sample negative: '{query_to_documents[sample_query]['negative'][0][:50]}...'")
+      
+      # Create triplets
+      logger.info("Creating query-positive-negative triplets")
+      self.triplets = []
+      queries_with_both = 0
+      
+      for query, docs_dict in query_to_documents.items():
+        if docs_dict['positive'] and docs_dict['negative']:  # Only keep queries with both positive and negative docs
+          queries_with_both += 1
+          for positive_doc in docs_dict['positive']:
+            for negative_doc in docs_dict['negative']:
+              self.triplets.append((query, positive_doc, negative_doc))
+      
+      logger.info(f"Created {len(self.triplets)} triplets from {queries_with_both}/{len(query_to_documents)} unique queries with both pos/neg docs")
     
     # Store original texts
     logger.info("Storing original texts and encoding")
@@ -590,6 +627,10 @@ def main():
   parser.add_argument('--wandb_run_name', default=None, help='W&B run name')
   parser.add_argument('--log_level', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'], default='INFO', 
                       help='Logging level')
+  parser.add_argument('--convert_to_parquet', action='store_true',
+                      help='Convert TSV data to parquet before loading')
+  parser.add_argument('--convert_to_triplets', action='store_true',
+                      help='Convert data to triplets format if needed')
   args = parser.parse_args()
 
   # Set log level
@@ -610,6 +651,33 @@ def main():
     logger.info(f"CUDA version: {torch.version.cuda}")
     logger.info(f"GPU: {torch.cuda.get_device_name(0)}")
 
+  # Process the data file if needed
+  data_path = args.data
+  
+  # Check if we need to convert TSV to parquet
+  if args.convert_to_parquet and data_path.endswith('.tsv'):
+    logger.info(f"Converting {data_path} to parquet format...")
+    # Use the dataset_factory function
+    parquet_file = data_path.replace('.tsv', '.parquet')
+    data_path = str(convert_tsv_to_parquet(data_path, parquet_file))
+    logger.info(f"Converted data saved to {data_path}")
+  
+  # Handle format conversion if needed
+  if args.convert_to_triplets and not data_path.endswith('_triplets.parquet'):
+    logger.info(f"Converting {data_path} to triplets format...")
+    # Use the dataset_factory function
+    from dataset_factory.utils import transform_and_save_dataset
+    orig_path = data_path
+    triplets_file = Path(data_path).stem + '_triplets.parquet'
+    data_path = str(transform_and_save_dataset(
+        input_file=orig_path,
+        output_file=triplets_file,
+        format_type='triplets',
+        input_in_raw=False,  # Assume the path is absolute or relative to current dir
+        output_in_processed=True
+    ))
+    logger.info(f"Converted data saved to {data_path}")
+
   # Initialize wandb if enabled
   if args.wandb:
     # API key will be automatically loaded from WANDB_API_KEY in .env
@@ -622,14 +690,14 @@ def main():
         'epochs': args.epochs,
         'batch_size': args.batch_size,
         'device': args.device,
-        'data_path': args.data,
+        'data_path': data_path,
       }
     )
     logger.info(f"Weights & Biases initialized: {wandb.run.name}")
 
   # Load dataset
-  logger.info(f"Loading dataset from {args.data}")
-  dataset = Triplets(args.data)
+  logger.info(f"Loading dataset from {data_path}")
+  dataset = Triplets(data_path)
   
   # Create model
   logger.info("Creating model")
@@ -642,8 +710,8 @@ def main():
       'vocab_size': len(dataset.vocab),
       'triplets_count': len(dataset.triplets),
       'model': {
-        'embedding_dim': 64,  # Default value, update if changed
-        'hidden_dim': 128,    # Default value, update if changed
+        'embedding_dim': DEFAULT_EMBEDDING_DIM,
+        'hidden_dim': DEFAULT_HIDDEN_DIM,
         'query_tower_params': sum(p.numel() for p in model.query_tower.parameters()),
         'doc_tower_params': sum(p.numel() for p in model.document_tower.parameters()),
         'total_params': sum(p.numel() for p in model.parameters()),
