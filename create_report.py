@@ -512,6 +512,7 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
                     # Parameter importance
                     wr.ParameterImportancePlot(
                         with_respect_to="train/epoch_loss",
+                        params=["c::optimizer.lr", "c::batch_size", "c::epochs", "c::embedding.embedding_dim", "c::encoder.hidden_dim"],
                         layout=wr.Layout(w=12, h=8)
                     ),
                 ]
@@ -678,6 +679,25 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
                 ])
             except Exception as e:
                 logger.warning(f"Error creating experiment timeline: {str(e)}")
+        
+        # PanelGrid for performance analysis
+        wr.H2("Training Performance"),
+        wr.P(text="Analyzing processing times and training efficiency."),
+        wr.PanelGrid(
+            runsets=[runset],
+            panels=[
+                wr.LinePlot(
+                    title="Processing Time Breakdown",
+                    y=["performance/batch_time", "performance/forward_time", "performance/backward_time"],
+                    smoothing_factor=0.2
+                ),
+                wr.LinePlot(
+                    title="Processing Efficiency",
+                    y=["performance/samples_per_second"],
+                    smoothing_factor=0.2
+                )
+            ]
+        ),
         
         # Save the report
         try:
@@ -847,63 +867,64 @@ def create_comparison_report(project_name=None, entity=None, title=None, descrip
                     panels=[
                         wr.LinePlot(
                             title="Training Loss",
-                            x="Step",
-                            y=["train/loss"], 
+                            y=["train/batch_loss", "train/epoch_loss"], 
                             smoothing_factor=0.2
                         ),
                         wr.LinePlot(
-                            title="Validation Loss",
-                            x="Step",
-                            y=["val/loss"], 
+                            title="Positive & Negative Similarity",
+                            y=["train/pos_similarity", "train/neg_similarity"], 
                             smoothing_factor=0.2
                         ),
                         wr.LinePlot(
-                            title="Mean Reciprocal Rank (MRR)",
-                            x="Step",
-                            y=["val/mrr"], 
+                            title="Similarity Gap",
+                            y=["train/similarity_diff"], 
                             smoothing_factor=0.2
                         ),
                         wr.LinePlot(
-                            title="Mean Average Precision (MAP)",
-                            x="Step",
-                            y=["val/map"], 
-                            smoothing_factor=0.2
-                        ),
-                        wr.LinePlot(
-                            title="Hit Rate @ 5",
-                            x="Step",
-                            y=["val/hit_rate@5"], 
-                            smoothing_factor=0.2
-                        ),
-                        wr.LinePlot(
-                            title="Hit Rate @ 10",
-                            x="Step",
-                            y=["val/hit_rate@10"], 
+                            title="Performance Metrics",
+                            y=["performance/samples_per_second"],
                             smoothing_factor=0.2
                         ),
                     ]
                 ),
                 
                 # PanelGrid for analysis over time or batch
-                wr.H2("Training Dynamics"),
-                wr.P(text="Examining how models evolved during training can reveal patterns in convergence rate and stability."),
+                wr.H2("Training Configuration"),
+                wr.P(text="Examining differences in learning rate, batch size, and other training parameters."),
                 wr.PanelGrid(
                     runsets=[runset_all],
                     panels=[
                         wr.LinePlot(
                             title="Learning Rate",
-                            x="Step",
-                            y=["train/learning_rate"]
+                            y=["train/learning_rate"],
+                            smoothing_factor=0.2
                         ),
-                        wr.LinePlot(
+                        wr.ScalarChart(
                             title="Batch Size",
-                            x="Step",
-                            y=["train/batch_size"]
+                            metric="train/batch_size"
                         ),
                         wr.LinePlot(
                             title="Gradient Norm",
-                            x="Step",
-                            y=["train/grad_norm"],
+                            y=["gradients/total_norm", "train/grad_norm"],
+                            smoothing_factor=0.2
+                        )
+                    ]
+                ),
+                
+                # PanelGrid for performance analysis
+                wr.H2("Training Performance"),
+                wr.P(text="Analyzing processing times and training efficiency."),
+                wr.PanelGrid(
+                    runsets=[runset_all],
+                    panels=[
+                        wr.LinePlot(
+                            title="Processing Time Breakdown",
+                            y=["performance/batch_time", "performance/forward_time", "performance/backward_time"],
+                            smoothing_factor=0.2
+                        ),
+                        wr.LinePlot(
+                            title="Processing Efficiency",
+                            y=["performance/samples_per_second"],
                             smoothing_factor=0.2
                         )
                     ]

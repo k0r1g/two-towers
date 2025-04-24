@@ -167,6 +167,21 @@ def train_epoch(
                 'performance/backward_time': backward_time,
                 'performance/samples_per_second': len(queries) / batch_time,
             })
+            
+            # Compute and log gradient norms every 10 batches
+            if batch_idx % 10 == 0:
+                total_norm = 0
+                for p in model.parameters():
+                    if p.grad is not None:
+                        param_norm = p.grad.detach().data.norm(2)
+                        total_norm += param_norm.item() ** 2
+                total_norm = total_norm ** 0.5
+                
+                wandb.log({
+                    'train/batch': batch_idx,
+                    'gradients/total_norm': total_norm,
+                    'train/grad_norm': total_norm  # Add duplicate with preferred metric name
+                })
     
     # Calculate epoch metrics
     epoch_loss = total_loss / sample_count if sample_count > 0 else float('inf')
@@ -406,10 +421,15 @@ def train_model(config: Dict[str, Any]) -> torch.nn.Module:
         
         # Log to wandb if enabled
         if use_wandb:
+            # Get current learning rate from optimizer
+            current_lr = optimizer.param_groups[0]['lr']
+            
             wandb.log({
                 'epoch': epoch,
                 'train/epoch_loss': epoch_loss,
                 'train/epoch_time': train_metrics['time'],
+                'train/learning_rate': current_lr,
+                'train/batch_size': batch_size
             })
         
         # Save model if it's the best so far
