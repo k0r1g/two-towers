@@ -181,6 +181,37 @@ def comparison_config_panel(runset):
         ]
     )
 
+def hyperparameter_analysis_panels(project_runset):
+    """Return panels for hyperparameter analysis."""
+    return wr.PanelGrid(
+        runsets=[project_runset],
+        panels=[
+            # Run comparison
+            wr.RunComparer(
+                diff_only=True,
+                layout=wr.Layout(w=24, h=10)
+            ),
+            # Parameter analysis
+            wr.ParallelCoordinatesPlot(
+                columns=[
+                    wr.ParallelCoordinatesPlotColumn(metric="c::optimizer.lr"),
+                    wr.ParallelCoordinatesPlotColumn(metric="c::batch_size"),
+                    wr.ParallelCoordinatesPlotColumn(metric="c::epochs"),
+                    wr.ParallelCoordinatesPlotColumn(metric="c::embedding.embedding_dim"),
+                    wr.ParallelCoordinatesPlotColumn(metric="c::encoder.hidden_dim"),
+                    wr.ParallelCoordinatesPlotColumn(metric="train/epoch_loss"),
+                    wr.ParallelCoordinatesPlotColumn(metric="train/similarity_diff"),
+                ],
+                layout=wr.Layout(w=24, h=8)
+            ),
+            # Parameter importance
+            wr.ParameterImportancePlot(
+                with_respect_to="train/epoch_loss",
+                layout=wr.Layout(w=12, h=8)
+            ),
+        ]
+    )
+
 def genealogy_panel(markdown_content):
     """Return a panel for dataset genealogy information."""
     return wr.PanelGrid(
@@ -230,6 +261,17 @@ def media_browser_panel(runset):
                 media_keys=["examples/query", "examples/positive_doc", "examples/negative_doc"],
                 layout=wr.Layout(w=24, h=10)
             ),
+        ]
+    )
+
+def timeline_panel(markdown_content):
+    """Return a panel with experiment timeline visualization."""
+    return wr.PanelGrid(
+        panels=[
+            wr.MarkdownPanel(
+                markdown=markdown_content,
+                layout=wr.Layout(w=24, h=12)
+            )
         ]
     )
 

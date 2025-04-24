@@ -19,7 +19,8 @@ from .report_utils import (
     resolve_run_id, 
     load_genealogy,
     format_genealogy_markdown,
-    create_mermaid_flowchart
+    create_mermaid_flowchart,
+    create_experiment_timeline
 )
 from .blocks import (
     toc,
@@ -30,10 +31,12 @@ from .blocks import (
     gradient_panels,
     config_panels,
     training_config_panels,
+    hyperparameter_analysis_panels,
     genealogy_panel,
     mermaid_flowchart_panel,
     dataset_analysis_panels,
     media_browser_panel,
+    timeline_panel,
     applications_next_steps
 )
 
@@ -116,6 +119,14 @@ def create_two_tower_report(
             project=project_name,
             entity=entity,
             query=f"id={run_id}" if run_id else "",
+            # No OrderBy to ensure compatibility with current wandb_workspaces version
+        )
+        
+        # Define a broader runset for the project (used in hyperparameter analysis)
+        project_runset = wr.Runset(
+            project=project_name,
+            entity=entity,
+            # No OrderBy to ensure compatibility with current wandb_workspaces version
         )
         
         # Build report blocks using the reusable components
@@ -224,6 +235,28 @@ def create_two_tower_report(
             training_config_panels(runset),
         ])
         
+        # Add hyperparameter analysis section
+        report.blocks.extend([
+            wr.H1(text="🔬 Hyperparameter Analysis"),
+            wr.MarkdownBlock(text=(
+                "## Comparing Runs & Hyperparameters\n\n"
+                "This section helps identify the impact of different hyperparameters on model performance. It's especially useful when comparing multiple training runs.\n\n"
+                "* **Run Comparer**: Directly compare configuration and metrics across different runs\n"
+                "* **Parallel Coordinates Plot**: Visualize relationships between hyperparameters and outcomes\n"
+                "* **Parameter Importance**: Identify which hyperparameters have the most impact on model performance\n\n"
+                "**Key hyperparameters for two-tower models**:\n"
+                "* **Learning Rate**: Controls step size during optimization (typically 1e-3 to 1e-5)\n"
+                "* **Batch Size**: Number of examples processed simultaneously (impacts training dynamics)\n"
+                "* **Embedding Dimension**: Size of the shared embedding space (higher = more capacity but slower)\n"
+                "* **Hidden Dimension**: Size of internal representations in the towers\n\n"
+                "**What to look for**:\n"
+                "* Patterns between hyperparameters and final loss/similarity gap\n"
+                "* Which parameters have the most impact on performance\n"
+                "* Promising hyperparameter combinations for future runs"
+            )),
+            hyperparameter_analysis_panels(project_runset),
+        ])
+        
         # Dataset Analysis section if genealogy is available
         if dataset_genealogy:
             report.blocks.extend([
@@ -281,13 +314,9 @@ def create_two_tower_report(
                 )),
             ])
             
-            # Create a timeline of experiments in Mermaid.js format
-            # (This could be moved to a helper function in report_utils)
-            # For now, we'll keep it simple
-            timeline_markdown = "```mermaid\ntimeline\n    title Experiment Timeline\n"
-            timeline_markdown += "    section Experiments\n    ✅ Current Run : Active\n```"
-            
-            report.blocks.append(mermaid_flowchart_panel(timeline_markdown))
+            # Create a timeline of experiments using the helper function
+            timeline_markdown = create_experiment_timeline(experiment_files)
+            report.blocks.append(timeline_panel(timeline_markdown))
         
         # Save the report
         try:

@@ -20,7 +20,8 @@ from .blocks import (
     performance_panels,
     gradient_panels,
     training_config_panels,
-    comparison_config_panel
+    comparison_config_panel,
+    hyperparameter_analysis_panels
 )
 
 # Get logger for this module
@@ -117,8 +118,8 @@ def create_comparison_report(
                 entity=entity,
                 project=project_name,
                 name="All Compared Runs",
-                query=query,
-                order=[wr.OrderBy(name='CreatedTimestamp', ascending=False)]
+                query=query
+                # OrderBy attribute is not available in this version of wandb_workspaces
             )
             logger.info(f"Created runset with {len(run_ids)} runs")
         except Exception as e:
@@ -153,31 +154,24 @@ def create_comparison_report(
                     panels=[
                         wr.LinePlot(
                             title="Training Loss",
-                            x="Step",
+                            x="train/batch",
                             y=["train/batch_loss", "train/epoch_loss"], 
                             smoothing_factor=0.2,
                             layout=wr.Layout(x=0, y=0, w=8, h=6)
                         ),
                         wr.LinePlot(
                             title="Positive & Negative Similarity",
-                            x="Step",
+                            x="train/batch",
                             y=["train/pos_similarity", "train/neg_similarity"], 
                             smoothing_factor=0.2,
                             layout=wr.Layout(x=8, y=0, w=8, h=6)
                         ),
                         wr.LinePlot(
                             title="Similarity Gap",
-                            x="Step",
+                            x="train/batch",
                             y=["train/similarity_diff"], 
                             smoothing_factor=0.2,
                             layout=wr.Layout(x=16, y=0, w=8, h=6)
-                        ),
-                        wr.LinePlot(
-                            title="Performance Metrics",
-                            x="Step",
-                            y=["performance/samples_per_second"],
-                            smoothing_factor=0.2,
-                            layout=wr.Layout(x=0, y=6, w=8, h=6)
                         ),
                     ]
                 ),
@@ -190,7 +184,7 @@ def create_comparison_report(
                     panels=[
                         wr.LinePlot(
                             title="Learning Rate",
-                            x="Step",
+                            x="train/batch",
                             y=["train/learning_rate"],
                             smoothing_factor=0.2,
                             layout=wr.Layout(x=0, y=0, w=8, h=6)
@@ -202,7 +196,7 @@ def create_comparison_report(
                         ),
                         wr.LinePlot(
                             title="Gradient Norm",
-                            x="Step",
+                            x="train/batch",
                             y=["gradients/total_norm", "train/grad_norm"],
                             smoothing_factor=0.2,
                             layout=wr.Layout(x=16, y=0, w=8, h=6)
@@ -218,24 +212,42 @@ def create_comparison_report(
                     panels=[
                         wr.LinePlot(
                             title="Processing Time Breakdown",
-                            x="Step",
+                            x="train/batch",
                             y=["performance/batch_time", "performance/forward_time", "performance/backward_time"],
                             smoothing_factor=0.2,
-                            layout=wr.Layout(x=0, y=0, w=8, h=6)
+                            layout=wr.Layout(x=0, y=0, w=12, h=6)
                         ),
                         wr.LinePlot(
                             title="Processing Efficiency",
-                            x="Step",
+                            x="train/batch",
                             y=["performance/samples_per_second"],
                             smoothing_factor=0.2,
-                            layout=wr.Layout(x=8, y=0, w=8, h=6)
+                            layout=wr.Layout(x=12, y=0, w=12, h=6)
                         )
                     ]
                 ),
                 
+                # Hyperparameter Analysis section  
+                wr.H2("Hyperparameter Analysis"),
+                wr.P(text="""
+                This section helps identify the impact of different hyperparameters on model performance.
+                The parallel coordinates plot shows relationships between hyperparameters and outcomes,
+                while the parameter importance plot identifies which hyperparameters have the most impact.
+                """),
+                hyperparameter_analysis_panels(runset),
+                
                 # Conclusion
                 wr.H2("Conclusion"),
-                wr.P(text="This report was automatically generated to compare the performance of different runs of the two-tower model.")
+                wr.P(text="""
+                This report was automatically generated to compare the performance of different runs of the two-tower model.
+                
+                Key observations from this comparison:
+                * Compare learning rates, batch sizes, and model architectures
+                * Look for patterns in similarity metrics and training loss
+                * Identify which hyperparameters have the most impact on performance
+                
+                Use these insights to guide future experiments and improve the model's retrieval capabilities.
+                """)
             ]
             
             # Save the report

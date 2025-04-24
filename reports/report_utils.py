@@ -75,7 +75,7 @@ def find_experiment_files(run_id: Optional[str] = None, number: int = 5) -> List
 
 def resolve_entity(entity_cfg: Optional[str]) -> str:
     """
-    Resolve the W&B entity to use.
+    Resolve the W&B entity to use with multiple fallback options.
     
     Args:
         entity_cfg: Configured entity from arguments
@@ -86,28 +86,46 @@ def resolve_entity(entity_cfg: Optional[str]) -> str:
     if entity_cfg:
         return entity_cfg
     
+    # First try: current wandb run if available
     try:
-        # Try to get default entity from API
+        if wandb.run is not None:
+            entity = wandb.run.entity
+            logger.info(f"Using entity from current wandb.run: {entity}")
+            return entity
+    except Exception as e:
+        logger.warning(f"Error getting entity from current run: {str(e)}")
+    
+    # Second try: default entity from API
+    try:
         api = wandb.Api()
         entity = api.default_entity
         if entity:
             logger.info(f"Using default entity from wandb.Api(): {entity}")
             return entity
     except Exception as e:
-        logger.warning(f"Error getting default entity: {str(e)}")
+        logger.warning(f"Error getting default entity from API: {str(e)}")
     
-    # If we're still here, try environment variable
+    # Third try: environment variable
     entity = os.environ.get("WANDB_ENTITY")
     if entity:
         logger.info(f"Using entity from WANDB_ENTITY environment variable: {entity}")
         return entity
+    
+    # Fourth try: try to get from config
+    try:
+        from config import WANDB_ENTITY
+        if WANDB_ENTITY:
+            logger.info(f"Using entity from config: {WANDB_ENTITY}")
+            return WANDB_ENTITY
+    except (ImportError, AttributeError):
+        logger.warning("Could not import WANDB_ENTITY from config")
     
     logger.warning("Could not resolve W&B entity, will use None")
     return ""
 
 def resolve_run_id(project: str, entity: str, run_id: Optional[str]) -> Optional[str]:
     """
-    Resolve the run ID to use.
+    Resolve the run ID to use with fallback options.
     
     Args:
         project: W&B project name
@@ -120,7 +138,16 @@ def resolve_run_id(project: str, entity: str, run_id: Optional[str]) -> Optional
     if run_id:
         return run_id
     
-    # Try to get the most recent run from the project
+    # First try: current wandb run
+    try:
+        if wandb.run is not None:
+            resolved_run_id = wandb.run.id
+            logger.info(f"Using current wandb.run id: {resolved_run_id}")
+            return resolved_run_id
+    except Exception as e:
+        logger.warning(f"Error getting run ID from current run: {str(e)}")
+    
+    # Second try: get the most recent run from the project
     logger.info("Attempting to find most recent run from API")
     try:
         api = wandb.Api()
@@ -245,4 +272,63 @@ def create_mermaid_flowchart(genealogy: Dict[str, Any]) -> str:
     # Training
     mermaid += "D --> E[Training Data]\n```"
     
-    return mermaid 
+    return mermaid
+
+def create_experiment_timeline(experiment_files: List[Path]) -> str:
+    """
+    Create a Mermaid.js timeline from experiment files.
+    
+    Args:
+        experiment_files: List of experiment file paths
+        
+    Returns:
+        Mermaid.js timeline in markdown
+    """
+    if not experiment_files:
+        return "```mermaid\ntimeline\n    title Experiment Timeline\n    section Experiments\n    ✅ Current Run : Active\n```"
+    
+    try:
+        # Load experiment summaries
+        experiment_summaries = []
+        for file_path in experiment_files:
+            try:
+                data = json.loads(file_path.read_text())
+                experiment_summaries.append(data)
+            except Exception as e:
+                logger.warning(f"Error loading experiment summary {file_path}: {str(e)}")
+        
+        # Sort by timestamp
+        experiment_summaries.sort(key=lambda x: x.get("timestamp", ""))
+        
+        # Create timeline markdown
+        timeline_markdown = "```mermaid\ntimeline\n    title Experiment Timeline\n"
+        
+        # Group by day
+        current_date = None
+        for summary in experiment_summaries:
+            timestamp = summary.get("timestamp", "")
+            if timestamp:
+                date = timestamp.split("T")[0]
+                if date != current_date:
+                    current_date = date
+                    timeline_markdown += f"    title {date}\n"
+                
+                # Add experiment to timeline
+                experiment_id = summary.get("experiment_id", "unknown")
+                config_file = Path(summary.get("config_file", "unknown")).stem
+                success = summary.get("success", False)
+                training_time = summary.get("total_training_time", 0)
+                
+                # Format time string
+                time_str = timestamp.split("T")[1].split(".")[0] if "T" in timestamp else ""
+                
+                success_icon = "✅" if success else "❌"
+                timeline_markdown += f"    section {time_str}\n"
+                timeline_markdown += f"    {success_icon} Exp {experiment_id[-8:]}: {config_file} ({training_time:.1f}s)\n"
+        
+        timeline_markdown += "```"
+        return timeline_markdown
+    
+    except Exception as e:
+        logger.warning(f"Error creating experiment timeline: {str(e)}")
+        return "```mermaid\ntimeline\n    title Experiment Timeline\n    section Experiments\n    ✅ Current Run : Active\n```" 
