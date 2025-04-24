@@ -1,0 +1,38 @@
+# paths
+data: data/processed/classic_triplets.parquet
+device: cuda
+checkpoint_dir: checkpoints
+
+# Tokeniser
+tokeniser:
+  type: char
+  max_len: 64
+
+# Embedding
+embedding:
+  type: lookup
+  embedding_dim: 64
+
+# Encoder
+encoder:
+  arch: mean
+  hidden_dim: 128
+  tied_weights: false
+
+# Loss
+loss:
+  type: triplet
+  margin: 0.2
+
+# Training
+batch_size: 256
+epochs: 3
+optimizer:
+  type: adamw
+  lr: 0.001
+
+# W&B
+use_wandb: true
+wandb:
+  project: two-tower-retrieval
+  entity: azuremis 

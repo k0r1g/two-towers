@@ -65,6 +65,12 @@ from dataset_factory import (
     transform_and_save_dataset
 )
 
+# Import train_model from twotower package for the new pipeline
+from twotower import train_model
+
+# Import torch to check for CUDA
+import torch
+
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('train_with_msmarco')
@@ -118,7 +124,8 @@ def run_experiment(force_download: bool,
                    epochs: int, 
                    batch_size: int, 
                    skip_training: bool, 
-                   use_wandb: bool) -> None:
+                   use_wandb: bool,
+                   config_path: str) -> None:
     """
     Run a single MS MARCO experiment with the given parameters.
     
@@ -133,6 +140,7 @@ def run_experiment(force_download: bool,
         batch_size: Batch size for training
         skip_training: Skip model training step
         use_wandb: Enable Weights & Biases logging
+        config_path: Path to training config YAML file
     """
     experiment_logger = logging.getLogger(f'msmarco_experiment_{Path(preset_path).stem}_{split}')
     experiment_logger.info(f"Starting experiment with preset {preset_path} on split {split}")
@@ -230,22 +238,31 @@ def run_experiment(force_download: bool,
         else:
             experiment_logger.info(f"Sampled file {sample_triplets_parquet} already exists. Skipping sampling.")
 
-    # Step 3: Train the model
+    # Step 3: Train the model using the config file
     if not skip_training:
-        experiment_logger.info("Training the two-tower model...")
-        train_cmd = [
-            "python", "two_tower_mini.py",
-            "--data", str(sample_triplets_parquet),
-            "--epochs", str(epochs),
-            "--batch_size", str(batch_size),
-            "--wandb_run_name", f"msmarco_{split}_{preset_name}"
-        ]
+        experiment_logger.info("Training the two-tower model using the config file...")
         
-        if use_wandb:
-            train_cmd.append("--wandb")
+        # Load config file
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
         
-        experiment_logger.info(f"Running command: {' '.join(train_cmd)}")
-        subprocess.run(train_cmd, check=True)
+        # Override config with command-line arguments and generated data path
+        config['data'] = str(sample_triplets_parquet)
+        config['epochs'] = epochs
+        config['batch_size'] = batch_size
+        config['use_wandb'] = use_wandb
+        config['device'] = "cuda" if torch.cuda.is_available() else "cpu"
+        if 'wandb' in config:
+            config['wandb']['run_name'] = f"msmarco_{split}_{preset_name}"
+        else:
+            config['wandb'] = {"project": "two-tower-retrieval", "run_name": f"msmarco_{split}_{preset_name}", "entity": None}
+        
+        experiment_logger.info(f"Training configuration: {config}")
+        
+        start_time = time.time()
+        model = train_model(config)
+        end_time = time.time()
+        experiment_logger.info(f"Training complete! Total time: {end_time - start_time:.2f}s")
     else:
         experiment_logger.info("Skipping model training step...")
     
@@ -280,6 +297,7 @@ def main():
     parser.add_argument('--batch_size', type=int, default=256, help='Batch size for training')
     parser.add_argument('--skip_training', action='store_true', help='Skip model training step')
     parser.add_argument('--wandb', action='store_true', help='Enable Weights & Biases logging')
+    parser.add_argument('--config', default='configs/msmarco_default.yml', help='Path to training config YAML file')
     
     # Parallel execution
     parser.add_argument('--parallel', action='store_true', help='Run experiments in parallel')
@@ -339,7 +357,7 @@ def main():
         experiment_args = [
             (args.force_download, args.skip_prepare, split, preset_path, 
              args.samples, args.seed, args.epochs, args.batch_size, 
-             args.skip_training, args.wandb)
+             args.skip_training, args.wandb, args.config)
             for split, preset_path in experiments
         ]
         
@@ -361,7 +379,8 @@ def main():
                 epochs=args.epochs,
                 batch_size=args.batch_size,
                 skip_training=args.skip_training,
-                use_wandb=args.wandb
+                use_wandb=args.wandb,
+                config_path=args.config
             )
             end_time = time.time()
             logger.info(f"Experiment completed in {end_time - start_time:.2f}s")
