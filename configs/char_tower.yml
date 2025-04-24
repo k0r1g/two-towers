@@ -1,0 +1,38 @@
+# paths
+data: data/processed/synthetic_triplets.parquet
+device: cuda  # Change to 'cpu' if no GPU available
+checkpoint_dir: checkpoints
+
+# Stage 1 – tokeniser
+tokeniser:
+  type: char
+  max_len: 64
+
+# Stage 2 – embeddings
+embedding:
+  type: lookup
+  embedding_dim: 64
+
+# Stage 3 – encoder / tower
+encoder:
+  arch: mean
+  hidden_dim: 128
+  tied_weights: false  # Whether to share weights between query and document towers
+
+# Stage 4 - loss function
+loss:
+  type: triplet
+  margin: 0.2
+
+# Training parameters
+batch_size: 256
+epochs: 3
+optimizer:
+  type: adamw
+  lr: 1e-3
+
+# W&B configuration
+use_wandb: false  # Set to true to enable W&B logging
+wandb:
+  project: two-tower-retrieval
+  entity: null  # Set to your username or team name 

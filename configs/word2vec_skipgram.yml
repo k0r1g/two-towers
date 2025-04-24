@@ -1,0 +1,39 @@
+# paths
+data: data/processed/synthetic_triplets.parquet
+device: cuda
+checkpoint_dir: checkpoints
+
+# Stage 1 – tokeniser
+tokeniser:
+  type: char  # Using char tokeniser for now (could be replaced with word tokeniser)
+  max_len: 64
+
+# Stage 2 – embeddings
+embedding:
+  type: word2vec
+  kv_path: experiments/sg_ns10_100d.kv  # Path to pre-trained vectors
+
+# Stage 3 – encoder / tower
+encoder:
+  arch: mean
+  hidden_dim: 128
+  tied_weights: true  # Using tied weights between towers to reduce parameters
+
+# Stage 4 - loss function
+loss:
+  type: triplet
+  margin: 0.3  # Slightly higher margin for pre-trained embeddings
+
+# Training parameters
+batch_size: 256
+epochs: 3
+optimizer:
+  type: adamw
+  lr: 5e-4  # Lower learning rate for pre-trained embeddings
+
+# W&B configuration
+use_wandb: false
+wandb:
+  project: two-tower-retrieval
+  entity: null
+  run_name: word2vec_skipgram_run 
