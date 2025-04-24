@@ -1,4 +1,12 @@
-positive_selector: classic
+# Multi-positive Multi-negative dataset configuration
+# This preset creates triplets where:
+# - All passages with is_selected=1 are used as positives
+# - Random inter-query passages are used as negatives
+# - Multiple negatives are created per positive document
+
+positive_selector: classic  # Use classic_positives function to select positives
+
 negative_sampler:
-  type: random_inter
-negatives_per_pos: 4 
+  type: random_inter  # Random sampling from other passages in the dataset
+  
+negatives_per_pos: 4  # Generate 4 negative examples per positive document 

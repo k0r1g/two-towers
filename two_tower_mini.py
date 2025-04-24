@@ -150,26 +150,58 @@ class Triplets(torch.utils.data.Dataset):
       logger.info(f"Dataframe sample:\n{dataframe.head(3)}")
       
       # Check if the data is in triplets format or pairs format
-      if all(col in dataframe.columns for col in ['query', 'positive_doc', 'negative_doc']):
+      # Handle different column naming conventions
+      query_col = None
+      pos_col = None
+      neg_col = None
+      
+      # Map possible column names
+      query_columns = ['query', 'q_text']
+      positive_columns = ['positive_doc', 'd_pos_text']
+      negative_columns = ['negative_doc', 'd_neg_text']
+      
+      # Find which column names are present
+      for col in query_columns:
+        if col in dataframe.columns:
+          query_col = col
+          break
+          
+      for col in positive_columns:
+        if col in dataframe.columns:
+          pos_col = col
+          break
+          
+      for col in negative_columns:
+        if col in dataframe.columns:
+          neg_col = col
+          break
+      
+      # Check if the data is in triplets format 
+      if query_col and pos_col and neg_col:
         # Already in triplets format
-        logger.info("Data is already in triplets format")
-        queries = dataframe['query'].tolist()
-        documents = dataframe['positive_doc'].tolist() + dataframe['negative_doc'].tolist()
+        logger.info(f"Data is already in triplets format with columns: {query_col}, {pos_col}, {neg_col}")
+        queries = dataframe[query_col].tolist()
+        documents = dataframe[pos_col].tolist() + dataframe[neg_col].tolist()
         # Create synthetic labels for compatibility (all 1s for positives, all 0s for negatives)
         labels = [1] * len(dataframe) + [0] * len(dataframe)
         
         # Store triplets directly
         self.triplets = list(zip(
-            dataframe['query'].tolist(),
-            dataframe['positive_doc'].tolist(),
-            dataframe['negative_doc'].tolist()
+            dataframe[query_col].tolist(),
+            dataframe[pos_col].tolist(),
+            dataframe[neg_col].tolist()
         ))
-      else:
+      elif all(col in dataframe.columns for col in ['query', 'document', 'label']):
         # Standard pairs format
         logger.info("Data is in query-document-label format, converting to triplets")
         queries = dataframe['query'].tolist()
         documents = dataframe['document'].tolist()
         labels = dataframe['label'].tolist()
+      else:
+        # Unknown format
+        raise ValueError(f"Unsupported dataframe format with columns: {dataframe.columns.tolist()}. "
+                        f"Expected either triplets format with columns like 'query'/'q_text', 'positive_doc'/'d_pos_text', 'negative_doc'/'d_neg_text' "
+                        f"or pairs format with columns 'query', 'document', 'label'")
     else:
       # Legacy TSV format
       logger.info("Reading TSV format data")

@@ -1,4 +1,10 @@
-positive_selector: classic
+# Classic MS MARCO configuration
+# This preset creates triplets with only one positive and one negative per query.
+# It's the standard configuration for MS MARCO v1.
+
+positive_selector: classic  # Use classic_positives function to select positives
+
 negative_sampler:
-  type: random_inter
-negatives_per_pos: 1 
+  type: random_inter  # Random sampling from other passages in the dataset
+  
+negatives_per_pos: 1  # Generate 1 negative example per positive document 
