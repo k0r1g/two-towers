@@ -16,19 +16,28 @@ wandb.init(
     entity="dtian",
     config={
         "hidden_dim": 128,
-        "batch_size": 1000,
+        "batch_size": 1200, #1000, 128
         "epochs": 20,
         "max_query_len": 10, #20,
         "max_passage_len": 100, #200,
         "margin": 0.2,
         "lr": 1e-3,
-        "patience": 3
+        "patience": 6
     }
 )
 config = wandb.config
 
 # Text to embedding
 def text_to_embedding(text, word_to_id, embedding_matrix, max_len, unk_id=0):
+    '''
+    get the embeddings of max_len tokens of the text from the embedding matrix
+     1. tokenize the text into tokens
+        2. look up max_len tokens' embeddings from the embedding matrix
+           if number of tokens < max_len, pad with unk_id
+           if number of tokens > max_len, truncate to max_len
+           if number of tokens == max_len, do nothing
+        3. return the embeddings of max_len tokens
+    '''
     # remove punctuation and non alphabetic characters
     remove_punctuation = re.sub(r'[^\w\s]', '', text)
     lower_case_words = remove_punctuation.lower()
@@ -197,7 +206,7 @@ def compute_validation_loss(model, val_loader, device, margin):
             q_vec, p_pos, p_neg = model(query, pos, neg)
             loss = F.relu(margin - F.cosine_similarity(q_vec, p_pos, dim=-1) + F.cosine_similarity(q_vec, p_neg, dim=-1)).mean()
             total_loss += loss.item()
-    return total_loss / len(val_loader)
+    return round(total_loss / len(val_loader),2) #round to 2 decimal places
 
 def train_validate_test():
     # Load dataset and embeddings
