@@ -10,11 +10,70 @@ import argparse
 import wandb
 import wandb_workspaces.reports.v2 as wr
 import logging
+import json
+import glob
+from pathlib import Path
+import datetime
+import yaml
+
 # Import config settings
 from config import WANDB_PROJECT, WANDB_ENTITY
 
 # Get the logger from the main script
 logger = logging.getLogger('two_tower')
+
+def find_experiment_files(run_id=None):
+    """
+    Find experiment files (configs, summaries, dataset genealogy) related to a run.
+    
+    Args:
+        run_id: Optional W&B run ID to search for
+    
+    Returns:
+        Dictionary of experiment files found
+    """
+    experiment_files = {
+        "configs": [],
+        "summaries": [],
+        "dataset_genealogy": []
+    }
+    
+    logs_dir = Path("logs")
+    if not logs_dir.exists():
+        logger.warning("Logs directory not found")
+        return experiment_files
+    
+    # Find all config files
+    experiment_files["configs"] = list(logs_dir.glob("config_*.yml"))
+    
+    # Find all experiment summary files
+    experiment_files["summaries"] = list(logs_dir.glob("experiment_summary_*.json"))
+    
+    # Find all dataset genealogy files
+    experiment_files["dataset_genealogy"] = list(logs_dir.glob("dataset_genealogy_*.json"))
+    
+    # If run_id is provided, filter to only include files related to that run
+    if run_id:
+        # Try to find the actual experiment ID from run_id
+        api = wandb.Api()
+        try:
+            run = api.run(f"{WANDB_ENTITY}/{WANDB_PROJECT}/{run_id}")
+            if 'experiment' in run.config and 'id' in run.config['experiment']:
+                experiment_id = run.config['experiment']['id']
+                logger.info(f"Found experiment ID {experiment_id} for run {run_id}")
+                
+                # Filter files to those containing the experiment ID
+                experiment_files["configs"] = [f for f in experiment_files["configs"] if experiment_id in f.name]
+                experiment_files["summaries"] = [f for f in experiment_files["summaries"] if experiment_id in f.name]
+                experiment_files["dataset_genealogy"] = [f for f in experiment_files["dataset_genealogy"] if experiment_id in f.name]
+        except Exception as e:
+            logger.warning(f"Error retrieving run {run_id}: {str(e)}")
+    
+    logger.info(f"Found {len(experiment_files['configs'])} config files")
+    logger.info(f"Found {len(experiment_files['summaries'])} experiment summary files")
+    logger.info(f"Found {len(experiment_files['dataset_genealogy'])} dataset genealogy files")
+    
+    return experiment_files
 
 def create_two_tower_report(project_name=None, entity=None, title=None, description=None, run_id=None):
     """
@@ -61,6 +120,19 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
             
         logger.info(f"Creating W&B report for project {project_name} with entity {entity} and run_id {run_id}")
         
+        # Find experiment files
+        experiment_files = find_experiment_files(run_id)
+        
+        # Try to load dataset genealogy for this run if available
+        dataset_genealogy = None
+        if experiment_files["dataset_genealogy"]:
+            try:
+                with open(experiment_files["dataset_genealogy"][0], 'r') as f:
+                    dataset_genealogy = json.load(f)
+                logger.info(f"Loaded dataset genealogy from {experiment_files['dataset_genealogy'][0]}")
+            except Exception as e:
+                logger.warning(f"Error loading dataset genealogy: {str(e)}")
+        
         # Create the report
         report = wr.Report(
             project=project_name,
@@ -75,7 +147,7 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
             project=project_name,
             entity=entity,
             # Add filter for the specific run if provided
-            query=f"id={run_id}" if run_id else None,
+            query=f"id={run_id}" if run_id else "",
         )
         
         # Add table of contents for better navigation
@@ -106,6 +178,70 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
                 caption="Two-tower architecture: separate encoders for queries and documents projecting into a shared embedding space"
             ),
         ])
+        
+        # Add Experiment Metadata section
+        report.blocks.extend([
+            wr.H1(text="🧪 Experiment Details"),
+            wr.MarkdownBlock(text=(
+                "## Experiment Configuration\n\n"
+                "This section provides detailed information about the experiment configuration, dataset preparation, "
+                "and other metadata to ensure reproducibility and clear documentation of the experimental setup.\n\n"
+            )),
+        ])
+        
+        # Add dataset genealogy information if available
+        if dataset_genealogy:
+            # Format dataset genealogy info
+            preset_info = ""
+            if "preset_config" in dataset_genealogy:
+                preset_info = "\n\n**Preset Configuration:**\n```json\n"
+                preset_info += json.dumps(dataset_genealogy["preset_config"], indent=2)
+                preset_info += "\n```"
+            
+            # Format preprocessing steps
+            preprocessing_steps = ""
+            if "preprocessing_steps" in dataset_genealogy:
+                preprocessing_steps = "\n\n**Preprocessing Steps:**\n"
+                for i, step in enumerate(dataset_genealogy["preprocessing_steps"]):
+                    step_time = step.get("timestamp", "N/A").split("T")[1].split(".")[0] if "timestamp" in step else "N/A"
+                    preprocessing_steps += f"{i+1}. **{step.get('step', 'unknown')}** ({step_time})\n"
+                    for k, v in step.items():
+                        if k not in ["step", "timestamp"]:
+                            preprocessing_steps += f"   - {k}: {v}\n"
+            
+            # Format dataset info
+            dataset_info = ""
+            if "triplets_info" in dataset_genealogy:
+                dataset_info += "\n\n**Triplets Dataset:**\n"
+                for k, v in dataset_genealogy["triplets_info"].items():
+                    dataset_info += f"- {k}: {v}\n"
+            
+            if "sampled_dataset_info" in dataset_genealogy:
+                dataset_info += "\n\n**Sampled Dataset:**\n"
+                for k, v in dataset_genealogy["sampled_dataset_info"].items():
+                    dataset_info += f"- {k}: {v}\n"
+            
+            # Add dataset genealogy panel
+            report.blocks.extend([
+                wr.PanelGrid(
+                    panels=[
+                        wr.MarkdownPanel(
+                            title="Dataset Genealogy",
+                            text=(
+                                f"**Experiment ID:** {dataset_genealogy.get('experiment_id', 'N/A')}\n\n"
+                                f"**MS MARCO Split:** {dataset_genealogy.get('ms_marco_split', 'N/A')}\n\n"
+                                f"**Preset File:** {dataset_genealogy.get('preset_file', 'N/A')}\n\n"
+                                f"**Random Seed:** {dataset_genealogy.get('random_seed', 'N/A')}\n\n"
+                                f"**Sample Size:** {dataset_genealogy.get('sample_size', 'All')} samples"
+                                f"{preset_info}"
+                                f"{preprocessing_steps}"
+                                f"{dataset_info}"
+                            ),
+                            layout=wr.Layout(w=24, h=15)
+                        ),
+                    ]
+                ),
+            ])
         
         # Section 1: Training Dynamics
         report.blocks.extend([
@@ -239,7 +375,38 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
             ),
         ])
         
-        # Section 4: Run Comparison and Parameter Analysis
+        # Section 4: Architecture & Configuration Details
+        report.blocks.extend([
+            wr.H1(text="🔧 Model Architecture & Configuration"),
+            wr.MarkdownBlock(text=(
+                "## Model Architecture and Configuration Details\n\n"
+                "This section provides a detailed view of the model architecture, hyperparameters, "
+                "and configuration settings used in this experiment. These details are crucial for "
+                "understanding the experiment setup and for reproducibility.\n\n"
+                "The two-tower model consists of several key components:\n\n"
+                "1. **Tokenizer**: Converts text into numeric sequences\n"
+                "2. **Embedding Layer**: Translates token IDs into dense vector representations\n"
+                "3. **Encoder Towers**: Process embeddings to create semantic representations\n"
+                "4. **Loss Function**: Trains the model to distinguish relevant from irrelevant pairs\n\n"
+                "The report below shows the specific configuration used for each component."
+            )),
+        ])
+        
+        # Add config panels from W&B run
+        report.blocks.extend([
+            wr.PanelGrid(
+                runsets=[runset],
+                panels=[
+                    # Config details
+                    wr.RunComparer(
+                        diff_only=False,
+                        layout=wr.Layout(w=24, h=15)
+                    ),
+                ]
+            ),
+        ])
+        
+        # Section 5: Run Comparison and Parameter Analysis
         report.blocks.extend([
             wr.H1(text="🔬 Hyperparameter Analysis"),
             wr.MarkdownBlock(text=(
@@ -275,11 +442,11 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
                     # Parameter analysis
                     wr.ParallelCoordinatesPlot(
                         columns=[
-                            wr.ParallelCoordinatesPlotColumn(metric="c::learning_rate"),
+                            wr.ParallelCoordinatesPlotColumn(metric="c::optimizer.lr"),
                             wr.ParallelCoordinatesPlotColumn(metric="c::batch_size"),
                             wr.ParallelCoordinatesPlotColumn(metric="c::epochs"),
-                            wr.ParallelCoordinatesPlotColumn(metric="c::model.embedding_dim"),
-                            wr.ParallelCoordinatesPlotColumn(metric="c::model.hidden_dim"),
+                            wr.ParallelCoordinatesPlotColumn(metric="c::embedding.embedding_dim"),
+                            wr.ParallelCoordinatesPlotColumn(metric="c::encoder.hidden_dim"),
                             wr.ParallelCoordinatesPlotColumn(metric="train/epoch_loss"),
                             wr.ParallelCoordinatesPlotColumn(metric="train/similarity_diff"),
                         ],
@@ -294,7 +461,47 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
             ),
         ])
         
-        # Section 5: Examples and Retrieval Results
+        # Section 6: Dataset Analysis
+        if dataset_genealogy:
+            report.blocks.extend([
+                wr.H1(text="📊 Dataset Analysis"),
+                wr.MarkdownBlock(text=(
+                    "## Dataset Characteristics and Preparation\n\n"
+                    "This section provides insights into the dataset used for training, including information about "
+                    "its size, composition, and the preprocessing steps applied to prepare it for training.\n\n"
+                    "Understanding the dataset is crucial for interpreting model performance and ensuring that "
+                    "the training data is representative of the target distribution."
+                )),
+                wr.PanelGrid(
+                    panels=[
+                        # Dataset statistics and genealogy
+                        wr.TextPanel(
+                            title="Dataset Statistics",
+                            text=(
+                                f"**Dataset Source**: MS MARCO ({dataset_genealogy.get('ms_marco_split', 'N/A')} split)\n\n"
+                                f"**Sampling Rate**: {dataset_genealogy.get('sample_size', 'All')} samples\n\n"
+                                f"**Triplets Format**: {dataset_genealogy.get('triplets_info', {}).get('row_count', 'N/A')} query-positive-negative triplets\n\n"
+                                f"**Random Seed**: {dataset_genealogy.get('random_seed', 'N/A')}"
+                            ),
+                            layout=wr.Layout(w=12, h=8)
+                        ),
+                        # Dataset preprocessing visualization
+                        wr.MarkdownPanel(
+                            title="Dataset Preparation Pipeline",
+                            text=(
+                                "```mermaid\nflowchart TD\n" +
+                                "A[MS MARCO Dataset] --> B[Convert to Parquet]\n" +
+                                f"B --> C[Create Triplets Format\\n{dataset_genealogy.get('triplets_info', {}).get('row_count', '?')} triplets]\n" +
+                                (f"C --> D[Sample Dataset\\n{dataset_genealogy.get('sample_size', 'All')} samples]" if dataset_genealogy.get('sample_size') else "C --> D[Use Full Dataset]") +
+                                "\nD --> E[Training Data]\n```"
+                            ),
+                            layout=wr.Layout(w=12, h=8)
+                        ),
+                    ]
+                ),
+            ])
+        
+        # Section 7: Examples and Retrieval Results
         report.blocks.extend([
             wr.H1(text="📝 Examples & Retrieval Results"),
             wr.MarkdownBlock(text=(
@@ -323,7 +530,7 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
             ),
         ])
         
-        # Section 6: Practical Applications & Next Steps
+        # Section 8: Practical Applications & Next Steps
         report.blocks.extend([
             wr.H1(text="🚀 Applications & Next Steps"),
             wr.MarkdownBlock(text=(
@@ -348,6 +555,75 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
                 "* Monitor retrieval quality on diverse queries in production"
             )),
         ])
+        
+        # Add experiment lineage if multiple related experiments
+        if len(experiment_files["summaries"]) > 1:
+            report.blocks.extend([
+                wr.H1(text="⏱️ Experiment Lineage"),
+                wr.MarkdownBlock(text=(
+                    "## Experiment History\n\n"
+                    "This section shows the progression of experiments conducted as part of this research. "
+                    "Understanding the sequence and relationship between experiments can provide valuable insights "
+                    "into the development process and the reasoning behind certain configuration choices."
+                )),
+            ])
+            
+            # Create a timeline of experiments
+            try:
+                # Load experiment summaries
+                experiment_summaries = []
+                for summary_file in experiment_files["summaries"]:
+                    try:
+                        with open(summary_file, 'r') as f:
+                            summary = json.load(f)
+                            experiment_summaries.append(summary)
+                    except Exception as e:
+                        logger.warning(f"Error loading experiment summary {summary_file}: {str(e)}")
+                
+                # Sort by timestamp
+                experiment_summaries.sort(key=lambda x: x.get("timestamp", ""))
+                
+                # Create timeline markdown
+                timeline_markdown = "```mermaid\ntimeline\n"
+                
+                # Group by day
+                current_date = None
+                for summary in experiment_summaries:
+                    timestamp = summary.get("timestamp", "")
+                    if timestamp:
+                        date = timestamp.split("T")[0]
+                        if date != current_date:
+                            current_date = date
+                            timeline_markdown += f"    title {date}\n"
+                        
+                        # Add experiment to timeline
+                        experiment_id = summary.get("experiment_id", "unknown")
+                        config_file = Path(summary.get("config_file", "unknown")).stem
+                        success = summary.get("success", False)
+                        training_time = summary.get("total_training_time", 0)
+                        
+                        # Format time string
+                        time_str = timestamp.split("T")[1].split(".")[0] if "T" in timestamp else ""
+                        
+                        success_icon = "✅" if success else "❌"
+                        timeline_markdown += f"    section {time_str}\n"
+                        timeline_markdown += f"    {success_icon} Exp {experiment_id[-8:]}: {config_file} ({training_time:.1f}s)\n"
+                
+                timeline_markdown += "```"
+                
+                report.blocks.extend([
+                    wr.PanelGrid(
+                        panels=[
+                            wr.MarkdownPanel(
+                                title="Experiment Timeline",
+                                text=timeline_markdown,
+                                layout=wr.Layout(w=24, h=12)
+                            ),
+                        ]
+                    ),
+                ])
+            except Exception as e:
+                logger.warning(f"Error creating experiment timeline: {str(e)}")
         
         # Save the report
         try:

@@ -37,9 +37,37 @@ import multiprocessing
 from pathlib import Path
 from typing import List, Dict, Any
 import time
+import json
+import datetime
+import socket
+import yaml
+import copy
 
 # Import from the twotower package
 from twotower import train_model, setup_logging, load_config
+
+# Try to import torch for hardware info
+try:
+    import torch
+    HAS_TORCH = True
+except ImportError:
+    HAS_TORCH = False
+
+def get_hardware_info() -> dict:
+    """Collect hardware information for experiment tracking."""
+    hardware_info = {
+        "hostname": socket.gethostname(),
+        "cpu_count": os.cpu_count()
+    }
+    
+    if HAS_TORCH:
+        hardware_info["cuda_available"] = torch.cuda.is_available()
+        if torch.cuda.is_available():
+            hardware_info["cuda_device_count"] = torch.cuda.device_count()
+            hardware_info["cuda_device_name"] = torch.cuda.get_device_name(0)
+            hardware_info["cuda_version"] = torch.version.cuda
+    
+    return hardware_info
 
 def run_experiment(config_path: str, log_level: str, log_file: str, use_wandb: bool) -> None:
     """
@@ -51,10 +79,16 @@ def run_experiment(config_path: str, log_level: str, log_file: str, use_wandb: b
         log_file: Path to log file (if None, will be derived from config filename)
         use_wandb: Whether to enable W&B logging
     """
+    # Create a unique experiment ID
+    config_name = Path(config_path).stem
+    experiment_id = f"tt_{config_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    
     # Set up logging for this experiment
     if log_file is None:
-        config_name = Path(config_path).stem
-        log_file = f"two_tower_{config_name}.log"
+        log_file = f"logs/two_tower_{config_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    
+    # Make sure the log directory exists
+    Path(log_file).parent.mkdir(parents=True, exist_ok=True)
     
     # Each experiment gets its own logger
     logger = setup_logging(
@@ -62,10 +96,25 @@ def run_experiment(config_path: str, log_level: str, log_file: str, use_wandb: b
         log_file=log_file
     )
     
+    logger.info(f"Starting experiment with ID: {experiment_id}")
+    logger.info(f"Experiment parameters:")
+    logger.info(f"  Config file: {config_path}")
+    logger.info(f"  Log level: {log_level}")
+    logger.info(f"  Log file: {log_file}")
+    logger.info(f"  Use W&B: {use_wandb}")
+    
+    # Log hardware information
+    hardware_info = get_hardware_info()
+    logger.info("Hardware information:")
+    for key, value in hardware_info.items():
+        logger.info(f"  {key}: {value}")
+    
     # Load configuration
     logger.info(f"Loading configuration from {config_path}")
     try:
         config = load_config(config_path)
+        # Make a copy of the original config for tracking
+        original_config = copy.deepcopy(config)
     except Exception as e:
         logger.error(f"Failed to load config from {config_path}: {str(e)}")
         return
@@ -73,6 +122,33 @@ def run_experiment(config_path: str, log_level: str, log_file: str, use_wandb: b
     # Override config with command line arguments
     if use_wandb:
         config['use_wandb'] = True
+    
+    # Add experiment metadata to config
+    config['experiment'] = {
+        'id': experiment_id,
+        'timestamp': datetime.datetime.now().isoformat(),
+        'config_file': str(config_path),
+        'hardware': hardware_info
+    }
+    
+    # Add W&B tags
+    if 'wandb' in config:
+        if 'tags' not in config['wandb']:
+            config['wandb']['tags'] = []
+        # Add config file name as a tag
+        config['wandb']['tags'].append(f"config_{config_name}")
+    else:
+        config['wandb'] = {
+            "project": "two-tower-retrieval",
+            "tags": [f"config_{config_name}"]
+        }
+    
+    # Save the complete config for reference
+    config_file = Path(f"logs/config_{experiment_id}.yml")
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(config_file, 'w') as f:
+        yaml.dump(config, f, default_flow_style=False)
+    logger.info(f"Complete configuration saved to {config_file}")
     
     # Print configuration summary
     logger.info("Configuration summary:")
@@ -84,14 +160,66 @@ def run_experiment(config_path: str, log_level: str, log_file: str, use_wandb: b
         else:
             logger.info(f"  {key}: {value}")
     
+    # Log modifications from original config
+    logger.info("Configuration overrides:")
+    for key in config:
+        if key in original_config:
+            if isinstance(config[key], dict) and isinstance(original_config[key], dict):
+                for k in config[key]:
+                    if k in original_config[key]:
+                        if config[key][k] != original_config[key][k]:
+                            logger.info(f"  {key}.{k}: {original_config[key][k]} -> {config[key][k]}")
+                    else:
+                        logger.info(f"  {key}.{k}: ADDED -> {config[key][k]}")
+            elif config[key] != original_config[key]:
+                logger.info(f"  {key}: {original_config[key]} -> {config[key]}")
+        else:
+            logger.info(f"  {key}: ADDED")
+    
     # Train model
     try:
         start_time = time.time()
         model = train_model(config)
         end_time = time.time()
-        logger.info(f"Training complete! Total time: {end_time - start_time:.2f}s")
+        total_time = end_time - start_time
+        logger.info(f"Training complete! Total time: {total_time:.2f}s")
+        
+        # Create experiment summary
+        experiment_summary = {
+            "experiment_id": experiment_id,
+            "config_file": str(config_path),
+            "timestamp": datetime.datetime.now().isoformat(),
+            "total_training_time": total_time,
+            "success": True,
+            "hardware": hardware_info,
+        }
+        
+        # Save experiment summary
+        summary_file = Path(f"logs/experiment_summary_{experiment_id}.json")
+        with open(summary_file, 'w') as f:
+            json.dump(experiment_summary, f, indent=2)
+        logger.info(f"Experiment summary saved to {summary_file}")
+        
     except Exception as e:
         logger.error(f"Error during training: {str(e)}")
+        
+        # Create experiment summary for failed run
+        experiment_summary = {
+            "experiment_id": experiment_id,
+            "config_file": str(config_path),
+            "timestamp": datetime.datetime.now().isoformat(),
+            "total_training_time": time.time() - start_time,
+            "success": False,
+            "error": str(e),
+            "hardware": hardware_info,
+        }
+        
+        # Save experiment summary for failed run
+        summary_file = Path(f"logs/experiment_summary_{experiment_id}.json")
+        with open(summary_file, 'w') as f:
+            json.dump(experiment_summary, f, indent=2)
+        logger.info(f"Failed experiment summary saved to {summary_file}")
+
 
 def main():
     # Parse command line arguments
@@ -113,6 +241,12 @@ def main():
                        help="Maximum number of parallel workers (defaults to CPU count)")
     
     args = parser.parse_args()
+    
+    # Log all command-line arguments
+    main_logger = logging.getLogger('train_main')
+    main_logger.info("Command-line arguments:")
+    for arg, value in vars(args).items():
+        main_logger.info(f"  {arg}: {value}")
     
     # Collect all config paths
     config_paths = []
@@ -141,13 +275,44 @@ def main():
             sys.exit(1)
     
     # Set up root logger for the script
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+    
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     root_logger = setup_logging(
         log_level=args.log_level,
-        log_file="train_experiments.log"
+        log_file=f"logs/train_experiments_{timestamp}.log"
     )
+    
+    # Create an experiment group ID for this run
+    experiment_group_id = f"tt_group_{timestamp}"
+    
+    # Log experiment metadata
+    root_logger.info(f"Starting experiment group: {experiment_group_id}")
     root_logger.info(f"Found {len(config_paths)} experiment configurations")
     for i, path in enumerate(config_paths):
         root_logger.info(f"  {i+1}. {path}")
+    
+    # Log hardware information
+    hardware_info = get_hardware_info()
+    root_logger.info("Hardware information:")
+    for key, value in hardware_info.items():
+        root_logger.info(f"  {key}: {value}")
+    
+    # Save experiment group metadata
+    group_metadata = {
+        "group_id": experiment_group_id,
+        "timestamp": datetime.datetime.now().isoformat(),
+        "config_files": config_paths,
+        "parallel": args.parallel,
+        "max_workers": args.max_workers,
+        "hardware": hardware_info
+    }
+    
+    group_metadata_file = Path(f"logs/experiment_group_{experiment_group_id}.json")
+    with open(group_metadata_file, 'w') as f:
+        json.dump(group_metadata, f, indent=2)
+    root_logger.info(f"Experiment group metadata saved to {group_metadata_file}")
     
     if args.parallel and len(config_paths) > 1:
         root_logger.info(f"Running {len(config_paths)} experiments in parallel")
@@ -160,7 +325,7 @@ def main():
         # Create arguments for each experiment
         experiment_args = [
             (config_path, args.log_level, 
-             f"two_tower_{Path(config_path).stem}.log" if args.log_file is None else args.log_file, 
+             f"logs/two_tower_{Path(config_path).stem}_{timestamp}.log" if args.log_file is None else args.log_file, 
              args.use_wandb) 
             for config_path in config_paths
         ]
@@ -176,11 +341,20 @@ def main():
             run_experiment(
                 config_path=config_path,
                 log_level=args.log_level,
-                log_file=args.log_file,
+                log_file=f"logs/two_tower_{Path(config_path).stem}_{timestamp}.log" if args.log_file is None else args.log_file,
                 use_wandb=args.use_wandb
             )
     
     root_logger.info("All experiments completed!")
+    
+    # Update group metadata with completion timestamp
+    group_metadata["completed_timestamp"] = datetime.datetime.now().isoformat()
+    group_metadata["total_runtime"] = (datetime.datetime.now() - 
+                                     datetime.datetime.fromisoformat(group_metadata["timestamp"])).total_seconds()
+    
+    with open(group_metadata_file, 'w') as f:
+        json.dump(group_metadata, f, indent=2)
+    root_logger.info(f"Updated experiment group metadata with completion information")
 
 if __name__ == "__main__":
     main() 
