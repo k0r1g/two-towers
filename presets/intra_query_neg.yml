@@ -1,0 +1,4 @@
+positive_selector: classic
+negative_sampler:
+  type: intra_query_zero
+negatives_per_pos: 1 

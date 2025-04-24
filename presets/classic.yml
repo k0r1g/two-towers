@@ -1,0 +1,4 @@
+positive_selector: classic
+negative_sampler:
+  type: random_inter
+negatives_per_pos: 1 
