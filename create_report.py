@@ -320,7 +320,7 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
                     # Primary training metrics
                     wr.LinePlot(
                         title="Training Loss (by Batch)",
-                        x="batch",
+                        x="train/batch",
                         y=["train/batch_loss"],
                         smoothing_factor=0.8,
                         layout=wr.Layout(w=12, h=8)
@@ -356,14 +356,14 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
                     # Similarity metrics
                     wr.LinePlot(
                         title="Query-Document Similarity Trends",
-                        x="batch",
+                        x="train/batch",
                         y=["train/pos_similarity", "train/neg_similarity"],
                         smoothing_factor=0.8,
                         layout=wr.Layout(w=12, h=8)
                     ),
                     wr.LinePlot(
                         title="Similarity Gap (Pos - Neg)",
-                        x="batch",
+                        x="train/batch",
                         y=["train/similarity_diff"],
                         smoothing_factor=0.8,
                         layout=wr.Layout(w=12, h=8)
@@ -401,21 +401,21 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
                     # Performance metrics
                     wr.LinePlot(
                         title="Batch Processing Time",
-                        x="batch",
+                        x="train/batch",
                         y=["performance/batch_time"],
                         smoothing_factor=0.5,
                         layout=wr.Layout(w=8, h=6)
                     ),
                     wr.LinePlot(
                         title="Forward/Backward Time Breakdown",
-                        x="batch",
+                        x="train/batch",
                         y=["performance/forward_time", "performance/backward_time"],
                         smoothing_factor=0.5,
                         layout=wr.Layout(w=8, h=6)
                     ),
                     wr.LinePlot(
                         title="Training Throughput (Samples/Second)",
-                        x="batch",
+                        x="train/batch",
                         y=["performance/samples_per_second"],
                         smoothing_factor=0.5,
                         layout=wr.Layout(w=8, h=6)
@@ -423,7 +423,7 @@ def create_two_tower_report(project_name=None, entity=None, title=None, descript
                     # Gradient analysis
                     wr.LinePlot(
                         title="Gradient Norm (Model Health)",
-                        x="batch",
+                        x="train/batch",
                         y=["gradients/total_norm"],
                         smoothing_factor=0.5,
                         layout=wr.Layout(w=12, h=6)
@@ -954,7 +954,7 @@ def main():
     parser = argparse.ArgumentParser(description="Create W&B reports for Two-Tower model experiments")
     
     # Common arguments
-    parser.add_argument("--project", default="two-towers", help="W&B project name")
+    parser.add_argument("--project", default="two-tower-retrieval", help="W&B project name")
     parser.add_argument("--entity", default=None, help="W&B entity (username or team name)")
     parser.add_argument("--title", default=None, help="Report title")
     parser.add_argument("--description", default=None, help="Report description")
