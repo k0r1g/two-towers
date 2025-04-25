@@ -25,6 +25,7 @@ from .encoders import build_two_tower
 from .dataset import TripletDataset
 from .losses import build as build_loss
 from .utils import setup_logging, log_tensor_info, save_config, load_config, save_checkpoint, Timer
+from .huggingface import save_and_upload  # Import HuggingFace Hub integration
 
 # Load default config from YAML file
 try:
@@ -386,6 +387,12 @@ def train_model(config: Dict[str, Any]) -> torch.nn.Module:
     checkpoint_dir = config.get('checkpoint_dir', CHECKPOINTS_DIR)
     use_wandb = config.get('use_wandb', False)
     
+    # Extract HuggingFace Hub parameters
+    hf_config = config.get('huggingface', {})
+    push_to_hub = hf_config.get('push_to_hub', False)
+    hf_repo_id = hf_config.get('repo_id', 'mlx7-two-tower')
+    hf_private = hf_config.get('private', False)
+    
     # Initialize wandb if enabled
     if use_wandb:
         wandb_config = config.get('wandb', {})
@@ -411,6 +418,7 @@ def train_model(config: Dict[str, Any]) -> torch.nn.Module:
     
     # Track best model
     best_loss = float('inf')
+    best_model_path = None
     
     # Training loop
     logger.info(f"Starting training for {epochs} epochs")
@@ -450,7 +458,7 @@ def train_model(config: Dict[str, Any]) -> torch.nn.Module:
             logger.info(f"New best model with loss: {best_loss:.6f}")
             
             # Save checkpoint
-            save_checkpoint(
+            best_model_path = save_checkpoint(
                 model=model,
                 tokeniser_vocab=dataset.tokeniser.string_to_index,
                 optimizer=optimizer,
@@ -461,6 +469,27 @@ def train_model(config: Dict[str, Any]) -> torch.nn.Module:
             )
     
     logger.info(f"Training completed. Best loss: {best_loss:.6f}")
+    
+    # Push model to HuggingFace Hub if enabled
+    if push_to_hub and best_model_path:
+        logger.info(f"Pushing model to HuggingFace Hub: {hf_repo_id}")
+        try:
+            # Save and upload model to HuggingFace Hub
+            repo_url = save_and_upload(
+                model=model,
+                tokenizer=dataset.tokeniser,
+                config=config,
+                repo_id=hf_repo_id,
+                local_dir=os.path.join(checkpoint_dir, "hub_export"),
+                private=hf_private
+            )
+            logger.info(f"Model successfully pushed to HuggingFace Hub: {repo_url}")
+            
+            # Log the HuggingFace Hub URL to W&B if enabled
+            if use_wandb:
+                wandb.log({"huggingface_hub_url": repo_url})
+        except Exception as e:
+            logger.error(f"Failed to push model to HuggingFace Hub: {str(e)}")
     
     # Close wandb run if enabled
     if use_wandb:
@@ -476,6 +505,12 @@ def main():
                      help="Logging level")
     parser.add_argument("--log_file", default=None, help="Path to log file")
     parser.add_argument("--use_wandb", action="store_true", help="Enable W&B logging")
+    
+    # Add HuggingFace Hub arguments
+    parser.add_argument("--push_to_hub", action="store_true", help="Push trained model to HuggingFace Hub")
+    parser.add_argument("--hub_repo_id", default="mlx7-two-tower", help="HuggingFace Hub repository ID")
+    parser.add_argument("--hub_private", action="store_true", help="Make HuggingFace Hub repository private")
+    
     args = parser.parse_args()
     
     # Set up logging
@@ -491,6 +526,14 @@ def main():
     # Override config with command line arguments
     if args.use_wandb:
         config['use_wandb'] = True
+    
+    # Override HuggingFace Hub config with command line arguments
+    if args.push_to_hub:
+        if 'huggingface' not in config:
+            config['huggingface'] = {}
+        config['huggingface']['push_to_hub'] = True
+        config['huggingface']['repo_id'] = args.hub_repo_id
+        config['huggingface']['private'] = args.hub_private
     
     # Train model
     model = train_model(config)

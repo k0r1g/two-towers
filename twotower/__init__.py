@@ -24,6 +24,12 @@ from .train import train_model
 # Expose evaluation functionality
 from .evaluate import evaluate_model, print_evaluation_results
 
+# Expose HuggingFace Hub functionality
+from .huggingface import (
+    save_model_for_hub, upload_model_to_hub, load_model_from_hub,
+    download_dataset_from_hub, save_and_upload
+)
+
 # Define what's available when using from twotower import *
 __all__ = [
     # Core models
@@ -49,6 +55,10 @@ __all__ = [
     
     # Evaluation
     'evaluate_model', 'print_evaluation_results',
+    
+    # HuggingFace Hub
+    'save_model_for_hub', 'upload_model_to_hub', 'load_model_from_hub',
+    'download_dataset_from_hub', 'save_and_upload',
     
     # Utilities
     'setup_logging', 'log_tensor_info', 'save_config', 'load_config',
