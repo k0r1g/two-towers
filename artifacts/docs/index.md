@@ -10,6 +10,8 @@ Welcome to the documentation for the Two-Tower Retrieval Model. This documentati
 - [Inference & Search](inference.md): Using the model for retrieval tasks
 - [Evaluation](evaluation.md): Metrics and evaluation methodologies
 - [Testing](testing.md): Testing framework and procedures
+- [GPU Setup](gpu-setup.md): Setting up GPU environment for training
+- [Docker Setup](docker-setup.md): Containerized deployment for inference
 
 ## Quick Links
 
@@ -28,10 +30,11 @@ The Two-Tower retrieval model is a dual encoder architecture for semantic search
 - **Standard IR Metrics**: Comprehensive evaluation metrics (Precision@K, Recall@K, MRR, NDCG)
 - **Unified Search Interface**: Common interface for different search implementations
 - **CLI Tools**: Command-line tools for building indices and retrieving documents
+- **GPU Acceleration**: Support for CUDA-enabled training and inference
 
 ## Getting Started
 
-To get started with the Two-Tower model, please refer to the [README.md](../../README.md) file in the project root, which provides installation instructions and basic usage examples.
+To get started with the Two-Tower model, please refer to the [README.md](../../README.md) file in the project root, which provides installation instructions and basic usage examples. For setting up a GPU environment, see the [GPU Setup guide](gpu-setup.md).
 
 ## Configuration System
 
