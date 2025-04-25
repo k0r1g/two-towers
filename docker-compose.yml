@@ -11,7 +11,7 @@ services:
   inference:
     build: ./inference/docker
     environment:
-      - MODEL_REPO_URL=https://huggingface.co/azuremis/twotower-char-emb
+      - MODEL_REPO_URL=sentence-transformers/all-MiniLM-L6-v2
       - CHROMA_HOST=chroma
     depends_on: [chroma]
     ports: ["8080:8080"] 
