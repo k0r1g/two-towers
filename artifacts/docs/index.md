@@ -1,13 +1,15 @@
-# Two-Tower Model Documentation
+# Two-Tower Retrieval Model Documentation
 
-Welcome to the documentation for the Two-Tower retrieval model. This documentation provides detailed information about the model architecture, configuration, evaluation metrics, and usage.
+Welcome to the documentation for the Two-Tower Retrieval Model. This documentation provides comprehensive information about the model's architecture, configuration, training, evaluation, and inference capabilities.
 
 ## Table of Contents
 
-- [Configuration Reference](config.md) - Complete reference for all configuration options
-- [Evaluation Metrics](evaluation.md) - Information about model evaluation metrics
-- [Inference & Search](inference.md) - Guide to using the search functionality
-- [Refactoring & Architecture](refactoring.md) - Overview of the codebase structure and design
+- [Project Status](../project_status_report.md): Current state, recent developments, and next steps
+- [Configuration](config.md): Configuration options and usage
+- [Refactoring & Architecture](refactoring.md): Information about the codebase structure
+- [Inference & Search](inference.md): Using the model for retrieval tasks
+- [Evaluation](evaluation.md): Metrics and evaluation methodologies
+- [Testing](testing.md): Testing framework and procedures
 
 ## Quick Links
 
@@ -29,4 +31,20 @@ The Two-Tower retrieval model is a dual encoder architecture for semantic search
 
 ## Getting Started
 
-See the [main README](../../README.md) for instructions on installation and basic usage. 
+To get started with the Two-Tower model, please refer to the [README.md](../../README.md) file in the project root, which provides installation instructions and basic usage examples.
+
+## Configuration System
+
+The Two-Tower model uses a hierarchical YAML-based configuration system. For details, see the [Configuration documentation](config.md).
+
+## Inference
+
+For information about using the trained model for search and retrieval tasks, see the [Inference documentation](inference.md).
+
+## Contributing
+
+If you're interested in contributing to the project, please review the [Refactoring & Architecture documentation](refactoring.md) to understand the codebase structure.
+
+## Testing
+
+For information about the testing framework and how to run tests, see the [Testing documentation](testing.md). 
