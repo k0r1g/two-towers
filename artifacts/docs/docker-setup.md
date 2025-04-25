@@ -1,11 +1,13 @@
-# Docker Setup Documentation
+# Docker Setup for Two-Tower Model Inference
 
-## System Architecture
+This document describes the Docker setup for deploying the Two-Tower model inference service with ChromaDB.
 
-The system consists of two main services:
+## Overview
+
+The setup consists of two Docker services:
 
 1. **ChromaDB**: A vector database for storing and querying embeddings
-2. **Inference API**: A FastAPI service that loads a model from Hugging Face and provides endpoints for embedding generation and vector search
+2. **Inference API**: A FastAPI service that loads our Two-Tower model from Hugging Face and provides endpoints for embedding generation and vector search
 
 ```
 ┌─────────────┐     ┌─────────────┐
@@ -26,10 +28,41 @@ The system consists of two main services:
 └─────────────┘
 ```
 
-## Prerequisites
+## File Structure
 
-- Docker
-- Docker Compose
+```
+two-towers/
+├─ docker-compose.yml                # Docker Compose configuration
+├─ data/
+│  └─ chroma_data/                  # Persistent storage for ChromaDB
+└─ inference/
+   └─ docker/                       # Docker files for inference service
+      ├─ Dockerfile                 # Container configuration
+      ├─ requirements.txt           # Python dependencies
+      ├─ app.py                     # FastAPI application
+      ├─ .dockerignore              # Files to exclude from build
+      └─ static/                    # Static files for web UI
+         └─ index.html              # Demo web interface
+```
+
+## Quick Start
+
+To start the services:
+
+```bash
+cd two-towers
+sudo docker compose up -d
+```
+
+The services will be available at:
+- ChromaDB: http://localhost:8000
+- Inference API: http://localhost:8080
+
+To stop the services:
+
+```bash
+sudo docker compose down
+```
 
 ## Services Details
 
@@ -41,26 +74,27 @@ The ChromaDB service uses the official ChromaDB Docker image to provide a vector
 chroma:
   image: chromadb/chroma:latest
   volumes:
-    - ./chroma_data:/chroma/.chroma
+    - ./data/chroma_data:/chroma/.chroma
   environment:
     - IS_PERSISTENT=TRUE
   ports: ["8000:8000"]
 ```
 
-- **Data Persistence**: Data is stored in the `./chroma_data` directory
+- **Data Persistence**: Data is stored in the `./data/chroma_data` directory
 - **Port**: The service is accessible on port 8000
 
 ### Inference Service
 
 The Inference service is a custom Python application built with FastAPI that:
 
-1. Loads a model from Hugging Face
+1. Loads our Two-Tower model from Hugging Face
 2. Provides an API for generating embeddings
 3. Connects to ChromaDB for vector storage and search
+4. Serves a web-based demo interface
 
 ```yaml
 inference:
-  build: ./docker/inference
+  build: ./inference/docker
   environment:
     - MODEL_REPO_URL=https://huggingface.co/azuremis/twotower-char-emb
     - CHROMA_HOST=chroma
@@ -68,7 +102,7 @@ inference:
   ports: ["8080:8080"]
 ```
 
-- **Model**: The service loads a model from the specified Hugging Face repository
+- **Model**: The service loads the model from the specified Hugging Face repository
 - **Port**: The API is accessible on port 8080
 - **Dependencies**: Requires the ChromaDB service to be running
 
@@ -78,7 +112,7 @@ The Inference service provides the following endpoints:
 
 ### `GET /`
 
-Root endpoint that returns a simple message confirming the API is running.
+Serves the web-based demo interface.
 
 ### `GET /health`
 
@@ -161,32 +195,6 @@ Add texts to the vector database:
 }
 ```
 
-## Docker Compose Commands
-
-### Start the Services
-
-```bash
-sudo docker compose up -d
-```
-
-### View Logs
-
-```bash
-sudo docker compose logs -f
-```
-
-### Stop the Services
-
-```bash
-sudo docker compose down
-```
-
-### Rebuild the Services
-
-```bash
-sudo docker compose build
-```
-
 ## Environment Variables
 
 ### ChromaDB Service
@@ -195,64 +203,32 @@ sudo docker compose build
 
 ### Inference Service
 
-- `MODEL_REPO_URL`: The Hugging Face repository URL for the model
-- `CHROMA_HOST`: The hostname of the ChromaDB service
+- `MODEL_REPO_URL`: The Hugging Face repository URL for the model (default: https://huggingface.co/azuremis/twotower-char-emb)
+- `CHROMA_HOST`: The hostname of the ChromaDB service (default: chroma)
 - `CHROMA_PORT`: The port of the ChromaDB service (default: 8000)
 - `PORT`: The port for the Inference API (default: 8080)
 
-## Storage
+## Web Interface
 
-The ChromaDB service stores data in the `./chroma_data` directory. This directory is mounted as a volume in the ChromaDB container, ensuring that data persists even if the container is restarted or removed.
+The service includes a simple web interface at the root URL (`/`) that allows you to:
+
+1. Add documents to the vector database
+2. Search for similar documents
+3. Generate embeddings for text input
 
 ## Development
 
-### Dockerfile
+To modify the Inference service:
 
-The Inference service uses a Python-based Dockerfile:
+1. Update files in the `inference/docker` directory
+2. Rebuild the Docker image: `sudo docker compose build inference`
+3. Restart the service: `sudo docker compose up -d inference`
 
-```dockerfile
-FROM python:3.10-slim
+## Troubleshooting
 
-WORKDIR /app
+If you encounter issues:
 
-# Install dependencies
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    git \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy application code
-COPY . .
-
-# Set environment variables with defaults
-ENV MODEL_REPO_URL=https://huggingface.co/azuremis/twotower-char-emb
-ENV CHROMA_HOST=chroma
-ENV CHROMA_PORT=8000
-ENV PORT=8080
-
-# Expose the port the app runs on
-EXPOSE ${PORT}
-
-# Command to run the application
-CMD ["python", "app.py"]
-```
-
-### Python Dependencies
-
-The Inference service requires the following Python packages:
-
-```
-torch>=2.0.0
-transformers>=4.28.0
-fastapi>=0.95.0
-uvicorn>=0.21.1
-chromadb>=0.4.0
-huggingface_hub>=0.14.1
-pydantic>=1.10.7
-sentence-transformers>=2.2.2
-numpy>=1.24.3
-``` 
+1. Check the logs: `sudo docker compose logs`
+2. Verify ChromaDB is running: `curl http://localhost:8000/api/v1/heartbeat`
+3. Check the Inference API health: `curl http://localhost:8080/health`
+4. Restart the services: `sudo docker compose restart` 

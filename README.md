@@ -10,6 +10,7 @@ This repository contains a modular implementation of a Two-Tower (Dual Encoder) 
 - **Standard IR Metrics**: Comprehensive evaluation metrics (Precision@K, Recall@K, MRR, NDCG)
 - **Unified Search Interface**: Common interface for different search implementations
 - **CLI Tools**: Command-line tools for building indices and retrieving documents
+- **Docker-based Deployment**: For inference
 
 ## Directory Structure
 
@@ -169,6 +170,29 @@ The modular design makes it easy to extend the model with new components:
 - [Evaluation Metrics](artifacts/docs/evaluation.md)
 - [Refactoring & Architecture](artifacts/docs/refactoring.md)
 - [Inference & Search](artifacts/docs/inference.md)
+
+## Docker Setup
+
+### Running the Docker Inference Service
+
+1. Start the Docker services:
+
+```bash
+docker compose up -d
+```
+
+2. Access the web interface at http://localhost:8080
+
+3. Use the API endpoints to interact with the model:
+   - POST `/add` - Add documents to the vector database
+   - POST `/search` - Search for similar documents
+   - POST `/embed` - Generate embeddings for text
+
+For detailed information about the Docker setup, see the [Docker Setup Documentation](artifacts/docs/docker-setup.md).
+
+## Project Status
+
+- [Project Status Report](artifacts/project_status_report.md)
 
 
 
