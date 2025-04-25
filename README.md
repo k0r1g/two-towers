@@ -1,159 +1,174 @@
-# Two Tower Retrieval Model
+# Two-Tower Retrieval Model
 
-This repository contains a minimal implementation of a Two-Tower (Dual Encoder) neural network for document retrieval with comprehensive Weights & Biases logging and automatic report generation.
+This repository contains a modular implementation of a Two-Tower (Dual Encoder) neural network for document retrieval.
 
 ## Features
 
-- Character-level vocabulary (easy to inspect)
-- Custom contrastive triplet loss for better retrieval performance
-- Automatic W&B logging and visualization
-- Automatic report generation after each run
-- Support for both TSV and Parquet data formats
-- Centralized configuration management
+- **Modular Design**: Each component (tokenization, embedding, encoding) is implemented as a separate module
+- **Config-Driven**: All model and training parameters defined in YAML configuration files
+- **Easily Extensible**: Adding new tokenizers, embeddings, or encoders only requires implementing a new class
+- **Standard IR Metrics**: Comprehensive evaluation metrics (Precision@K, Recall@K, MRR, NDCG)
+- **Unified Search Interface**: Common interface for different search implementations
+- **CLI Tools**: Command-line tools for building indices and retrieving documents
 
-## Installation
+## Directory Structure
 
-1. Clone the repository:
+```
+two-towers/
+│
+├─ twotower/                   # Core model training code
+│   ├─ tokenisers.py           # Tokenization (Stage 1)
+│   ├─ embeddings.py           # Embedding layers (Stage 2)
+│   ├─ encoders.py             # Encoder towers (Stage 3)
+│   ├─ losses.py               # Loss functions (Stage 4)
+│   ├─ dataset.py              # Dataset handling
+│   ├─ train.py                # Training orchestration
+│   ├─ utils.py                # Utilities and helpers
+│   └─ evaluate.py             # Evaluation metrics
+│
+├─ inference/                  # Inference and retrieval code
+│   ├─ search/                 # Search implementations
+│   │   ├─ base.py             # Base search interface
+│   │   ├─ glove.py            # GloVe-based search
+│   │   └─ two_tower.py        # Two-Tower model search
+│   ├─ cli/                    # Command-line tools
+│   │   └─ retrieve.py         # Document retrieval CLI
+│   └─ examples/               # Example scripts
+│
+├─ configs/                    # Configuration files
+│   ├─ default_config.yml      # Base configuration
+│   ├─ char_tower.yml          # Character-level model config
+│   └─ word2vec_skipgram.yml   # Word2Vec embedding config
+│
+├─ docs/                       # Documentation
+├─ tools/                      # Utility scripts
+└─ artifacts/                  # Project artifacts and documentation
+```
+
+## Getting Started
+
+### Installation
+
+Install the package in development mode:
+
 ```bash
-git clone https://github.com/yourusername/two-towers.git
-cd two-towers
+pip install -e .
 ```
 
-2. Install the required packages:
+### Training a Model
+
+To train a model using a configuration file:
+
 ```bash
-pip install torch pandas tqdm wandb python-dotenv wandb-workspaces
+python train.py --config configs/char_tower.yml
 ```
 
-3. Create a `.env` file with your W&B API key (optional):
+To enable Weights & Biases logging:
+
+```bash
+python train.py --config configs/char_tower.yml --use_wandb
 ```
-WANDB_API_KEY=your_api_key_here
+
+### Retrieving Documents
+
+First, build an index of document vectors:
+
+```bash
+python -m inference.cli.retrieve build-index --model checkpoints/best_model.pt --documents my_documents.txt --output document_index.pkl
 ```
 
-## Configuration
+Then, retrieve documents for a query:
 
-The project uses a centralized configuration system with three levels of precedence:
+```bash
+python -m inference.cli.retrieve search --model checkpoints/best_model.pt --index document_index.pkl --query "your search query"
+```
 
-1. **Default values** in `config.py` (lowest precedence)
-2. **Environment variables** in `.env` file (middle precedence)
-3. **Command-line arguments** (highest precedence)
-
-### Customizing Configuration
-
-Edit the `config.py` file to set default values for your project:
+### Using Search in Python
 
 ```python
-# W&B settings
-WANDB_PROJECT = "two-tower-retrieval"
-WANDB_ENTITY = "your-username"  # Set to your username or team name
+from inference.search import GloVeSearch, TwoTowerSearch
 
-# Model defaults
-DEFAULT_EMBEDDING_DIM = 64
-DEFAULT_HIDDEN_DIM = 128
-DEFAULT_BATCH_SIZE = 256
-DEFAULT_LEARNING_RATE = 1e-3
-DEFAULT_EPOCHS = 3
+# GloVe-based search
+glove_search = GloVeSearch(model_name='glove-wiki-gigaword-50')
+glove_search.index_documents(documents)
+results = glove_search.search("query text", top_k=5)
 
-# Other project constants
-CHECKPOINTS_DIR = "checkpoints"
-MAX_SEQUENCE_LENGTH = 64
+# Two-Tower search
+from twotower import load_checkpoint
+checkpoint = load_checkpoint("model.pt")
+model = checkpoint["model"]
+tokenizer = checkpoint["tokenizer"]
+two_tower_search = TwoTowerSearch(model, tokenizer)
+two_tower_search.index_documents(documents)
+results = two_tower_search.search("query text", top_k=5)
 ```
 
-## Data Format
+### Evaluating Models
 
-The model expects training data in one of two formats:
+```python
+from twotower.evaluate import evaluate_model, print_evaluation_results
 
-1. **TSV format** with three columns:
-```
-query<TAB>document<TAB>label
-```
-Where *label* is 1 for a relevant (positive) pair and 0 for a random (negative) pair.
+results = evaluate_model(
+    model=model,
+    test_data=test_data,
+    tokenizer=tokenizer,
+    metrics=['precision', 'recall', 'mrr', 'ndcg'],
+    k_values=[1, 3, 5, 10]
+)
 
-2. **Parquet format** with the same three columns: `query`, `document`, and `label`.
-
-## Running the Model
-
-Run the model with:
-
-```bash
-python two_tower_mini.py --data pairs.parquet --epochs 3 --wandb
+print_evaluation_results(results)
 ```
 
-### Command-line options:
+## Configuration System
 
-- `--data`: Path to input data file (default: 'pairs.parquet')
-- `--epochs`: Number of training epochs (default: from config.py)
-- `--batch_size`: Batch size for training (default: from config.py)
-- `--learning_rate`: Learning rate (default: from config.py)
-- `--device`: Device to use ('cpu' or 'cuda:0', default: 'cpu')
-- `--wandb`: Enable Weights & Biases logging
-- `--wandb_project`: W&B project name (default: from .env or config.py)
-- `--wandb_entity`: W&B entity (username or team, default: from .env or config.py)
-- `--wandb_run_name`: Custom name for the W&B run
-- `--log_level`: Logging level (DEBUG, INFO, WARNING, ERROR, default: INFO)
+The Two-Tower system uses a hierarchical YAML-based configuration system with:
 
-## Automatic W&B Reports
+- **Inheritance**: Configs can extend other configs using the `extends` property
+- **Environment Variables**: Override settings with `TWOTOWER_` prefixed environment variables
+- **Command-line Overrides**: Override configs with command-line arguments
 
-When running with `--wandb`, the script automatically generates a comprehensive Weights & Biases report after training. The report includes:
-
-- Training loss curves
-- Similarity metrics visualizations
-- Performance metrics (training speed, timing breakdowns)
-- Gradient norms
-- Retrieval results for your search query
-- Data examples
-
-You can view the report in your W&B dashboard under the "Reports" tab, or by following the link printed in the terminal after training completes.
-
-## Manual Report Generation
-
-You can also generate reports manually with:
-
-```bash
-python create_report.py --title "My Custom Report" --description "Analysis of experiment results"
-```
-
-Options:
-- `--project`: W&B project name (default: from config.py)
-- `--entity`: W&B username or team name (default: from config.py)
-- `--title`: Custom title for the report (optional)
-- `--description`: Description for the report (optional)
-- `--run-id`: W&B run ID to focus on in the report (optional)
+For a complete configuration reference, see [artifacts/docs/config.md](artifacts/docs/config.md).
 
 ## Architecture
 
-The Two-Tower model consists of:
-1. **Query Tower**: Processes query text into embedding vectors
-2. **Document Tower**: Processes document text into embedding vectors
+The code follows a 5-stage pipeline:
 
-Both towers have identical architectures but maintain separate weights. The model is trained to maximize the similarity between queries and relevant documents while minimizing similarity with non-relevant documents.
+1. **Tokenization**: Converts text to token IDs (`tokenisers.py`)
+2. **Embedding**: Maps token IDs to dense vectors (`embeddings.py`)
+3. **Encoding**: Transforms token embeddings into a single vector (`encoders.py`)
+4. **Loss Function**: Defines the training objective (`losses.py`)
+5. **Training**: Orchestrates the training process (`train.py`)
 
-## License
+## Extending the Model
 
-[MIT License](LICENSE)
+The modular design makes it easy to extend the model with new components:
 
-# Configuration System
+### Adding a New Tokenizer
 
-The Two-Tower system uses a powerful, hierarchical configuration system that manages complexity through:
+1. Create a new class that inherits from `BaseTokeniser` in `tokenisers.py`
+2. Implement required methods and add it to the `REGISTRY` dictionary
 
-1. **YAML Configuration Files** - Human-readable configuration stored in the `configs/` directory
-2. **Configuration Inheritance** - Extend base configs to create specialized configurations
-3. **Environment Variable Overrides** - Override any setting with `TWOTOWER_` prefixed environment variables
-4. **Command-line Arguments** - Override settings via command-line arguments
+### Adding a New Embedding Type
 
-## Basic Configuration Usage
+1. Create a new class that inherits from `BaseEmbedding` in `embeddings.py`
+2. Implement required methods and add it to the `REGISTRY` dictionary
 
-```bash
-# Use a specific config file
-python train.py --config configs/char_tower.yml
+### Adding a New Encoder Architecture
 
-# Override settings via command line
-python train.py --config configs/char_tower.yml --epochs 10 --batch_size 512
+1. Create a new class that inherits from `BaseTower` in `encoders.py`
+2. Implement required methods and add it to the `TOWER_REGISTRY` dictionary
 
-# Override settings via environment variables
-TWOTOWER_BATCH_SIZE=512 TWOTOWER_EPOCHS=10 python train.py --config configs/char_tower.yml
-```
+### Adding a New Search Implementation
 
-For a complete configuration reference, see [CONFIG.md](CONFIG.md).
+1. Create a new class that inherits from `BaseSearch` in `inference/search/base.py`
+2. Implement required methods
+
+## Documentation
+
+- [Configuration Reference](artifacts/docs/config.md)
+- [Evaluation Metrics](artifacts/docs/evaluation.md)
+- [Refactoring & Architecture](artifacts/docs/refactoring.md)
+- [Inference & Search](artifacts/docs/inference.md)
 
 
 
