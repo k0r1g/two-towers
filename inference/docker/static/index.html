@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Two Tower Inference API Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 40px;
+            line-height: 1.6;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #333;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 10px;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .form-group textarea, .form-group input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        pre {
+            background-color: #f4f4f4;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Two Tower Inference API Demo</h1>
+    
+    <div class="container">
+        <div>
+            <h2>Add Documents</h2>
+            <div class="form-group">
+                <label for="add-texts">Enter texts (one per line):</label>
+                <textarea id="add-texts" rows="5" placeholder="Enter texts to add to the database..."></textarea>
+            </div>
+            <button onclick="addDocuments()">Add Documents</button>
+            <pre id="add-result"></pre>
+        </div>
+
+        <div>
+            <h2>Search Documents</h2>
+            <div class="form-group">
+                <label for="search-text">Enter search query:</label>
+                <input type="text" id="search-text" placeholder="Enter your search query...">
+            </div>
+            <div class="form-group">
+                <label for="top-k">Number of results:</label>
+                <input type="number" id="top-k" value="3" min="1" max="20">
+            </div>
+            <button onclick="searchDocuments()">Search</button>
+            <pre id="search-result"></pre>
+        </div>
+
+        <div>
+            <h2>Generate Embeddings</h2>
+            <div class="form-group">
+                <label for="embed-texts">Enter texts (one per line):</label>
+                <textarea id="embed-texts" rows="5" placeholder="Enter texts to generate embeddings..."></textarea>
+            </div>
+            <button onclick="generateEmbeddings()">Generate Embeddings</button>
+            <pre id="embed-result"></pre>
+        </div>
+    </div>
+
+    <script>
+        async function addDocuments() {
+            const textsArea = document.getElementById('add-texts');
+            const resultArea = document.getElementById('add-result');
+            
+            const texts = textsArea.value.split('\n').filter(text => text.trim() !== '');
+            
+            if (texts.length === 0) {
+                resultArea.textContent = 'No texts provided';
+                return;
+            }
+            
+            resultArea.textContent = 'Adding documents...';
+            
+            try {
+                const response = await fetch('/add', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ texts }),
+                });
+                
+                const data = await response.json();
+                resultArea.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                resultArea.textContent = `Error: ${error.message}`;
+            }
+        }
+        
+        async function searchDocuments() {
+            const searchText = document.getElementById('search-text').value;
+            const topK = parseInt(document.getElementById('top-k').value);
+            const resultArea = document.getElementById('search-result');
+            
+            if (!searchText) {
+                resultArea.textContent = 'No search query provided';
+                return;
+            }
+            
+            resultArea.textContent = 'Searching...';
+            
+            try {
+                const response = await fetch('/search', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ text: searchText, top_k: topK }),
+                });
+                
+                const data = await response.json();
+                resultArea.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                resultArea.textContent = `Error: ${error.message}`;
+            }
+        }
+        
+        async function generateEmbeddings() {
+            const textsArea = document.getElementById('embed-texts');
+            const resultArea = document.getElementById('embed-result');
+            
+            const texts = textsArea.value.split('\n').filter(text => text.trim() !== '');
+            
+            if (texts.length === 0) {
+                resultArea.textContent = 'No texts provided';
+                return;
+            }
+            
+            resultArea.textContent = 'Generating embeddings...';
+            
+            try {
+                const response = await fetch('/embed', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ texts }),
+                });
+                
+                const data = await response.json();
+                resultArea.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                resultArea.textContent = `Error: ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html> 

@@ -1,0 +1,17 @@
+version: "3.9"
+services:
+  chroma:
+    image: chromadb/chroma:latest
+    volumes:
+      - ./data/chroma_data:/chroma/.chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+    ports: ["8000:8000"]
+
+  inference:
+    build: ./inference/docker
+    environment:
+      - MODEL_REPO_URL=https://huggingface.co/azuremis/twotower-char-emb
+      - CHROMA_HOST=chroma
+    depends_on: [chroma]
+    ports: ["8080:8080"] 
