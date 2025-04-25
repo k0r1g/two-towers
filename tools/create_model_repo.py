@@ -9,6 +9,7 @@ import os
 import sys
 import argparse
 from pathlib import Path
+from dotenv import load_dotenv
 
 # Add the parent directory to the path to import local modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -137,15 +138,24 @@ def main():
                        help="Create model, dataset, and space repositories")
     args = parser.parse_args()
     
+    # Load environment variables from .env file
+    load_dotenv()
+    huggingface_token = os.environ.get("HUGGINGFACE_ACCESS_TOKEN")
+    
+    if not huggingface_token:
+        print("Error: HUGGINGFACE_ACCESS_TOKEN not found in .env file.")
+        print("Please add your token to the .env file or run 'huggingface-cli login'.")
+        return
+    
     # Authenticate with HuggingFace Hub
     try:
-        api = HfApi()
+        api = HfApi(token=huggingface_token)
         user_info = api.whoami()
         username = user_info["name"]
-        print(f"Authenticated as: {username}")
+        print(f"Authenticated as: {username} using token from .env file")
     except Exception as e:
         print(f"Error: Failed to authenticate with HuggingFace Hub: {e}")
-        print("Please run 'huggingface-cli login' first.")
+        print("Please check your HUGGINGFACE_ACCESS_TOKEN in .env file or run 'huggingface-cli login'.")
         return
     
     # Define repository ID
@@ -157,7 +167,8 @@ def main():
         repo_id=repo_id,
         private=args.private,
         repo_type="model",
-        exist_ok=True
+        exist_ok=True,
+        token=huggingface_token  # Pass the token
     )
     
     # Create and upload README.md
@@ -169,6 +180,7 @@ def main():
         path_or_fileobj=readme_path,
         path_in_repo="README.md",
         repo_id=repo_id,
+        token=huggingface_token,  # Pass the token
         commit_message="Add README.md"
     )
     
@@ -181,6 +193,7 @@ def main():
         path_or_fileobj=model_card_path,
         path_in_repo="model_card.md",
         repo_id=repo_id,
+        token=huggingface_token,  # Pass the token
         commit_message="Add model card"
     )
     
@@ -191,6 +204,7 @@ def main():
             path_or_fileobj=args.config,
             path_in_repo=os.path.basename(args.config),
             repo_id=repo_id,
+            token=huggingface_token,  # Pass the token
             commit_message="Add configuration file"
         )
     else:
@@ -205,7 +219,8 @@ def main():
             repo_id=dataset_repo_id,
             private=args.private,
             repo_type="dataset",
-            exist_ok=True
+            exist_ok=True,
+            token=huggingface_token  # Pass the token
         )
         
         # Create space repository
@@ -215,7 +230,8 @@ def main():
             repo_id=space_repo_id,
             private=args.private,
             repo_type="space",
-            exist_ok=True
+            exist_ok=True,
+            token=huggingface_token  # Pass the token
         )
     
     # Clean up temporary files

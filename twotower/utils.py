@@ -105,7 +105,40 @@ def load_config(path: str) -> Dict[str, Any]:
     Returns:
         Configuration dictionary with all values resolved
     """
-    with open(path, 'r') as f:
+    # Try to find the config file using different path strategies
+    resolved_path = None
+    
+    # 1. Try the path as provided
+    if os.path.exists(path):
+        resolved_path = path
+    
+    # 2. Try to resolve path relative to project root
+    if resolved_path is None:
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        project_relative_path = os.path.join(project_root, path)
+        if os.path.exists(project_relative_path):
+            resolved_path = project_relative_path
+    
+    # 3. Try looking for config in common folders
+    if resolved_path is None:
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        config_dirs = [
+            os.path.join(project_root, "configs"),
+            "configs",
+            "./configs"
+        ]
+        
+        for config_dir in config_dirs:
+            potential_path = os.path.join(config_dir, os.path.basename(path))
+            if os.path.exists(potential_path):
+                resolved_path = potential_path
+                break
+    
+    if resolved_path is None:
+        raise FileNotFoundError(f"Config file not found: {path}. Tried various path strategies including project root.")
+    
+    # Open and load the file
+    with open(resolved_path, 'r') as f:
         config = yaml.safe_load(f)
     
     # Process inheritance if specified
@@ -113,7 +146,7 @@ def load_config(path: str) -> Dict[str, Any]:
         base_path = config.pop('extends')
         # If base_path is not absolute, make it relative to current config directory
         if not os.path.isabs(base_path):
-            config_dir = os.path.dirname(path)
+            config_dir = os.path.dirname(resolved_path)
             base_path = os.path.join(config_dir, base_path)
         
         # Load the base config
@@ -150,7 +183,7 @@ def load_config(path: str) -> Dict[str, Any]:
         config = deep_merge(config, env_overrides)
         logger.info(f"Applied environment overrides: {list(env_overrides.keys())}")
     
-    logger.info(f"Configuration loaded from {path}")
+    logger.info(f"Configuration loaded from {resolved_path}")
     return config
 
 def parse_env_value(value: str) -> Any:
