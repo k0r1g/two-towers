@@ -1,0 +1,12 @@
+# Multi-positive Configuration
+# This preset creates triplets where:
+# - All passages with is_selected=1 are used as positives (multiple per query)
+# - Random inter-query passages are used as negatives
+# - Each positive gets one negative example
+
+positive_selector: classic  # Use classic_positives function to select positives
+
+negative_sampler:
+  type: random_inter  # Random sampling from other passages in the dataset
+  
+negatives_per_pos: 1  # Generate 1 negative example per positive document 

@@ -1,0 +1,61 @@
+# MS MARCO Configuration
+# 
+# Configuration for training with the MS MARCO dataset.
+# Optimized for query-document retrieval with mean pooling architecture.
+
+extends: default_config.yml
+
+#==============================================================================
+# Tokenizer Configuration
+#==============================================================================
+tokeniser:
+  type: char                                  # Character-level tokenization
+  max_len: 64                                 # Maximum sequence length
+
+#==============================================================================
+# Model Architecture
+#==============================================================================
+# Embedding configuration
+embedding:
+  type: lookup                                # Simple lookup table embeddings
+  embedding_dim: 64                           # Dimension of embedding vectors
+
+# Encoder configuration
+encoder:
+  arch: mean                                  # Mean pooling architecture
+  hidden_dim: 128                             # Hidden layer dimension size
+  tied_weights: false                         # Use separate weights for query and doc towers
+
+#==============================================================================
+# Loss Function
+#==============================================================================
+loss:
+  type: triplet                               # Triplet contrastive loss
+  margin: 0.2                                 # Margin for triplet loss
+
+#==============================================================================
+# Training Parameters
+#==============================================================================
+batch_size: 256                               # Training batch size
+epochs: 3                                     # Number of training epochs
+optimizer:
+  type: adamw                                 # AdamW optimizer
+  lr: 0.001                                   # Learning rate
+
+#==============================================================================
+# Dataset Configuration
+#==============================================================================
+positive_selector: classic                    # Use classic positive selection strategy
+negative_sampler:
+  type: random_inter                          # Random inter-query negative sampling
+negatives_per_pos: 5                          # Number of negative examples per positive
+
+#==============================================================================
+# Logging and Metrics
+#==============================================================================
+use_wandb: true                               # Enable Weights & Biases logging
+
+# W&B configuration
+wandb:
+  project: two-tower-retrieval                # W&B project name
+  entity: azuremis                            # W&B username or team name 

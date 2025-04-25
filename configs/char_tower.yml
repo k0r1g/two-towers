@@ -1,0 +1,53 @@
+# Character-level Tower Architecture
+# 
+# Configuration for a CNN-based architecture that uses character-level tokenization.
+# Extends the default configuration with character-specific settings.
+
+extends: default_config.yml
+
+#==============================================================================
+# Tokenizer Configuration
+#==============================================================================
+tokeniser:
+  type: char                                  # Character-level tokenization
+  max_len: 64                                 # Maximum sequence length
+
+#==============================================================================
+# Model Architecture
+#==============================================================================
+# Embedding configuration
+embedding:
+  type: lookup                                # Simple lookup table embeddings
+  embedding_dim: 64                           # Dimension of embedding vectors
+
+# Encoder configuration
+encoder:
+  arch: cnn                                   # CNN-based architecture
+  hidden_dim: 128                             # Hidden layer dimension size
+  tied_weights: true                          # Share weights between query and doc towers
+  
+#==============================================================================
+# Loss Function
+#==============================================================================
+loss:
+  type: triplet                               # Triplet contrastive loss
+  margin: 0.2                                 # Margin for triplet loss
+  
+#==============================================================================
+# Training Parameters
+#==============================================================================
+batch_size: 256                               # Training batch size
+epochs: 3                                     # Number of training epochs
+optimizer:
+  type: adamw                                 # AdamW optimizer
+  lr: 0.001                                   # Learning rate
+  
+#==============================================================================
+# Logging and Metrics
+#==============================================================================
+use_wandb: true                               # Enable Weights & Biases logging
+
+# W&B configuration
+wandb:
+  project: two-tower-retrieval                # W&B project name
+  entity: azuremis                            # W&B username or team name 

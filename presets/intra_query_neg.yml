@@ -1,0 +1,12 @@
+# Intra-query Negative Sampling
+# This preset creates triplets where:
+# - All passages with is_selected=1 are used as positives
+# - Non-selected passages (is_selected=0) from the same query are used as negatives
+# - Negatives are filtered to avoid those containing answer strings
+
+positive_selector: classic  # Use classic_positives function to select positives
+
+negative_sampler:
+  type: intra_query_zero  # Sample negatives from the same query's non-selected passages
+  
+negatives_per_pos: 2  # Generate 2 negative examples per positive document 

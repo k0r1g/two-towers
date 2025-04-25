@@ -1,0 +1,27 @@
+# Core deep‑learning runtime
+torch>=2.2,<3.0     # tested with 2.2.x
+
+# Progress‑bar utility
+tqdm>=4.66.0
+
+# Hugging Face libraries
+datasets>=2.14.0
+transformers>=4.35.0
+
+# Data analysis and visualization
+pandas>=2.0.0
+numpy>=1.24.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# GloVe embedding dependencies
+gensim>=4.3.0
+scikit-learn>=1.2.0
+
+# Experiment tracking
+wandb>=0.15.0
+python-dotenv>=1.0.0
+
+# Jupyter notebook
+jupyter>=1.0.0
+ipywidgets>=8.0.0

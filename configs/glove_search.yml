@@ -1,0 +1,53 @@
+# GloVe Semantic Search Configuration
+# 
+# Configuration that uses pretrained GloVe embeddings with mean pooling.
+# Optimized for semantic search applications.
+
+extends: default_config.yml
+
+#==============================================================================
+# Environment Configuration 
+#==============================================================================
+device: cpu                                   # Use CPU instead of CUDA
+
+#==============================================================================
+# Tokenizer Configuration
+#==============================================================================
+tokeniser:
+  type: word                                  # Word-level tokenization
+  max_len: 32                                 # Maximum number of words per sequence
+  lowercase: true                             # Convert text to lowercase
+  strip_punctuation: true                     # Remove punctuation during tokenization
+  
+#==============================================================================
+# Model Architecture
+#==============================================================================
+# Embedding configuration  
+embedding:
+  type: glove                                 # Use GloVe embeddings
+  model_name: glove-wiki-gigaword-50          # GloVe model to use
+  embedding_dim: 50                           # Dimension of GloVe embeddings
+  trainable: false                            # Freeze embeddings during training
+  
+# Encoder configuration
+encoder:
+  arch: avg_pool                              # Average pooling architecture
+  hidden_dim: 128                             # Hidden layer dimension size
+  tied_weights: true                          # Share weights between query and doc towers
+  dropout: 0.1                                # Dropout rate for regularization
+  
+#==============================================================================
+# Loss Function
+#==============================================================================
+loss:
+  type: triplet                               # Triplet contrastive loss
+  margin: 0.3                                 # Margin for triplet loss
+  
+#==============================================================================
+# Training Parameters
+#==============================================================================
+batch_size: 128                               # Training batch size
+epochs: 5                                     # Number of training epochs
+optimizer:
+  type: adam                                  # Adam optimizer
+  lr: 0.0005                                  # Learning rate (lower for pretrained embeddings) 
