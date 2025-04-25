@@ -1,0 +1,10 @@
+# Configuration for character-level Two-Tower model with HuggingFace Hub integration
+extends: configs/char_tower.yml
+
+# HuggingFace Hub settings (override defaults)
+huggingface:
+  push_to_hub: true                  # Enable pushing to HuggingFace Hub
+
+# W&B integration
+wandb:
+  run_name: char_tower_hf            # Unique run name for this configuration 

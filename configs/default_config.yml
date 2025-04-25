@@ -18,6 +18,14 @@ wandb:
   entity: "azuremis"                          # W&B username or team name
 
 #==============================================================================
+# HuggingFace Hub Settings
+#==============================================================================
+huggingface:
+  push_to_hub: false                          # Whether to push the model to HuggingFace Hub
+  repo_id: "mlx7-two-tower"                   # Repository ID (will be prefixed with username)
+  private: false                              # Whether the repository should be private
+
+#==============================================================================
 # Model Defaults
 #==============================================================================
 # Embedding configuration
