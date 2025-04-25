@@ -9,13 +9,24 @@ The Two-Tower model can be seamlessly integrated with the HuggingFace Hub, allow
 
 ## Setup
 
-Before using the HuggingFace Hub integration, you need to authenticate with your HuggingFace account:
+Before using the HuggingFace Hub integration, you need to authenticate with your HuggingFace account. You have two options:
 
+### Option 1: Login with the CLI (Recommended)
 ```bash
 huggingface-cli login
 ```
 
 This will prompt you for your HuggingFace authentication token, which you can obtain from your [HuggingFace account settings](https://huggingface.co/settings/tokens).
+
+### Option 2: Use .env file
+Add your HuggingFace token to the `.env` file in the project root:
+
+```
+# Hugging Face
+HUGGINGFACE_ACCESS_TOKEN=hf_your_token_here
+```
+
+Scripts that use `load_dotenv()` will automatically load this token. Make sure the `.env` file exists and contains the correct token.
 
 ## Creating Repositories
 
@@ -81,7 +92,23 @@ Options:
 - `--data-dir`: Directory containing the curated datasets (default: `data/processed/curated`)
 - `--skip-upload`: Skip uploading the datasets (just create the repository and card)
 
-The script requires the `HUGGINGFACE_ACCESS_TOKEN` environment variable to be set in your `.env` file.
+#### Authentication for the Dataset Script
+The script uses the `HUGGINGFACE_ACCESS_TOKEN` environment variable from your `.env` file. If you encounter authentication errors:
+
+1. Verify your `.env` file contains the correct token:
+   ```
+   HUGGINGFACE_ACCESS_TOKEN=hf_your_token_here
+   ```
+
+2. If still facing issues, try using the CLI authentication instead:
+   ```
+   huggingface-cli login
+   ```
+   
+3. For debugging, you can verify your token is being loaded with:
+   ```python
+   python -c "from dotenv import load_dotenv; import os; load_dotenv(); print('Token loaded:', os.environ.get('HUGGINGFACE_ACCESS_TOKEN') is not None)"
+   ```
 
 ### Manual Dataset Uploads
 
