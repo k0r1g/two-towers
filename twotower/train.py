@@ -474,14 +474,30 @@ def train_model(config: Dict[str, Any]) -> torch.nn.Module:
     if push_to_hub and best_model_path:
         logger.info(f"Pushing model to HuggingFace Hub: {hf_repo_id}")
         try:
+            # Ensure hf_repo_id is properly formatted
+            if '/' not in hf_repo_id:
+                # If no username provided, get it from the API
+                try:
+                    from huggingface_hub import HfApi
+                    api = HfApi(token=os.environ.get("HUGGINGFACE_ACCESS_TOKEN"))
+                    username = api.whoami()["name"]
+                    full_repo_id = f"{username}/{hf_repo_id}"
+                    logger.info(f"Using full repository ID: {full_repo_id}")
+                except Exception as e:
+                    logger.warning(f"Could not get username from HF API: {str(e)}")
+                    full_repo_id = hf_repo_id
+            else:
+                full_repo_id = hf_repo_id
+                
             # Save and upload model to HuggingFace Hub
             repo_url = save_and_upload(
                 model=model,
                 tokenizer=dataset.tokeniser,
                 config=config,
-                repo_id=hf_repo_id,
+                repo_id=full_repo_id,
                 local_dir=os.path.join(checkpoint_dir, "hub_export"),
-                private=hf_private
+                private=hf_private,
+                token=os.environ.get("HUGGINGFACE_ACCESS_TOKEN")
             )
             logger.info(f"Model successfully pushed to HuggingFace Hub: {repo_url}")
             
@@ -490,6 +506,9 @@ def train_model(config: Dict[str, Any]) -> torch.nn.Module:
                 wandb.log({"huggingface_hub_url": repo_url})
         except Exception as e:
             logger.error(f"Failed to push model to HuggingFace Hub: {str(e)}")
+            logger.error("Check your HuggingFace token and permissions.")
+            logger.error("You can try again later with: huggingface-cli upload-model "
+                        f"{full_repo_id} {best_model_path}")
     
     # Close wandb run if enabled
     if use_wandb:

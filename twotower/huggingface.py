@@ -11,6 +11,7 @@ import torch
 import yaml
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple, Union
+import logging
 
 # Import HF Hub utilities
 from huggingface_hub import (
@@ -89,21 +90,67 @@ def upload_model_to_hub(
     Returns:
         URL of the repository
     """
+    logger = logging.getLogger("twotower")
+    
+    # Get token from environment if not provided
+    if token is None:
+        token = os.environ.get("HUGGINGFACE_ACCESS_TOKEN")
+        if token:
+            logger.info("Using HUGGINGFACE_ACCESS_TOKEN from environment for upload")
+        else:
+            logger.warning("No token provided and HUGGINGFACE_ACCESS_TOKEN not found in environment. "
+                         "Authentication may fail during upload.")
+    
+    # Check if local directory exists
+    if not os.path.exists(local_dir):
+        raise ValueError(f"Local directory '{local_dir}' does not exist.")
+
+    # Initialize API with token
     api = HfApi(token=token)
+    
+    try:
+        # Verify token works by checking user info
+        user_info = api.whoami()
+        username = user_info["name"]
+        logger.info(f"Authenticated as: {username}")
+    except Exception as e:
+        logger.error(f"Authentication failed: {str(e)}")
+        raise ValueError("Failed to authenticate with Hugging Face Hub. Please check your token.")
     
     # Create repository if it doesn't exist
     if create_if_missing:
-        setup_repository(repo_id, private=private, token=token, exist_ok=True)
+        try:
+            repo_url = setup_repository(
+                repo_id=repo_id,
+                private=private,
+                token=token,
+                exist_ok=True,
+                repo_type="model"
+            )
+            logger.info(f"Repository created or already exists: {repo_id}")
+        except Exception as e:
+            logger.error(f"Failed to create repository: {str(e)}")
+            raise
+    
+    # List files to upload
+    file_count = sum(1 for _ in Path(local_dir).glob('**/*') if _.is_file())
+    logger.info(f"Uploading {file_count} files to {repo_id}...")
     
     # Upload the directory
-    api.upload_folder(
-        folder_path=local_dir,
-        repo_id=repo_id,
-        commit_message=commit_message,
-    )
+    try:
+        api.upload_folder(
+            folder_path=local_dir,
+            repo_id=repo_id,
+            commit_message=commit_message,
+            token=token
+        )
+        logger.info(f"Upload completed successfully")
+    except Exception as e:
+        logger.error(f"Upload failed: {str(e)}")
+        raise
     
     repo_url = f"https://huggingface.co/{repo_id}"
-    print(f"Model uploaded to {repo_url}")
+    logger.info(f"Model uploaded to {repo_url}")
     return repo_url
 
 
@@ -233,7 +280,8 @@ def save_and_upload(
     repo_id: str = "mlx7-two-tower",
     local_dir: str = "hub_export",
     private: bool = False,
-    token: Optional[str] = None
+    token: Optional[str] = None,
+    force_upload: bool = False
 ) -> str:
     """
     Save and upload a Two-Tower model to the Hugging Face Hub in one go.
@@ -245,21 +293,46 @@ def save_and_upload(
         repo_id: Repository ID 
         local_dir: Temporary directory to save files
         private: Whether to create a private repository
-        token: Hugging Face token
+        token: Hugging Face token (if None, will look for HUGGINGFACE_ACCESS_TOKEN in environment)
+        force_upload: Force upload even if there are issues
         
     Returns:
         URL of the repository
     """
+    logger = logging.getLogger("twotower")
+    
+    # Get token from environment if not provided
+    if token is None:
+        token = os.environ.get("HUGGINGFACE_ACCESS_TOKEN")
+        if token:
+            logger.info("Using HUGGINGFACE_ACCESS_TOKEN from environment")
+        else:
+            logger.warning("No token provided and HUGGINGFACE_ACCESS_TOKEN not found in environment. "
+                         "Authentication may fail.")
+    
     # Save the model locally
-    save_dir = save_model_for_hub(model, tokenizer, config, local_dir)
+    try:
+        save_dir = save_model_for_hub(model, tokenizer, config, local_dir)
+        logger.info(f"Model saved locally to {save_dir}")
+    except Exception as e:
+        logger.error(f"Error saving model locally: {str(e)}")
+        if not force_upload:
+            raise
     
     # Upload to the Hub
-    repo_url = upload_model_to_hub(
-        repo_id=repo_id, 
-        local_dir=save_dir,
-        token=token,
-        private=private,
-        create_if_missing=True
-    )
-    
-    return repo_url 
+    try:
+        logger.info(f"Uploading model to {repo_id}...")
+        repo_url = upload_model_to_hub(
+            repo_id=repo_id, 
+            local_dir=save_dir,
+            token=token,
+            private=private,
+            create_if_missing=True
+        )
+        logger.info(f"Model successfully uploaded to {repo_url}")
+        return repo_url
+    except Exception as e:
+        logger.error(f"Error uploading model to Hub: {str(e)}")
+        if not force_upload:
+            raise
+        return f"https://huggingface.co/{repo_id} (upload may have failed)" 
