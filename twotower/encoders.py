@@ -81,6 +81,80 @@ class MeanPoolingTower(BaseTower):
         return output
 
 
+class AveragePoolingTower(BaseTower):
+    """
+    Simple average pooling encoder that converts token embeddings to a fixed-size representation.
+    Optional projection layer for dimensionality reduction.
+    """
+    def __init__(self, embedding: BaseEmbedding, hidden_dim: int, dropout: float = 0.1):
+        super().__init__(embedding, hidden_dim)
+        logger.info(f"Initializing AveragePoolingTower with hidden_dim={hidden_dim}, dropout={dropout}")
+        
+        # Embedding dim is available through the embedding layer
+        embedding_dim = embedding.embedding_dim
+        
+        # Optional projection layer if output_dim != embedding_dim
+        self.has_projection = (self.hidden_dim != embedding_dim)
+        if self.has_projection:
+            logger.info(f"Adding projection layer from {embedding_dim} to {hidden_dim}")
+            self.projection = nn.Sequential(
+                nn.Linear(embedding_dim, hidden_dim),
+                nn.Dropout(dropout),
+                nn.LayerNorm(hidden_dim)
+            )
+        
+        # Count parameters
+        if self.has_projection:
+            proj_params = embedding_dim * hidden_dim + hidden_dim * 2  # weight matrix + layernorm params
+            logger.info(f"Projection layer parameters: {proj_params:,}")
+        
+        self.log_params()
+    
+    def forward(self, input_ids):
+        """
+        Args:
+            input_ids: Token IDs tensor of shape (batch_size, sequence_length)
+        
+        Returns:
+            Encoded representation of shape (batch_size, hidden_dim)
+        """
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Tower input_ids shape: {input_ids.shape}")
+        
+        # Create mask for padding tokens
+        attention_mask = (input_ids > 0).float()  # (batch_size, sequence_length)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Attention mask shape: {attention_mask.shape}")
+        
+        # Get embeddings
+        embeddings = self.embedding(input_ids)  # (batch_size, sequence_length, embedding_dim)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Embeddings shape: {embeddings.shape}")
+        
+        # Compute mean only over valid tokens
+        mask_expanded = attention_mask.unsqueeze(-1)  # (batch_size, sequence_length, 1)
+        sum_embeddings = torch.sum(embeddings * mask_expanded, dim=1)  # (batch_size, embedding_dim)
+        sum_mask = torch.sum(mask_expanded, dim=1)  # (batch_size, 1)
+        pooled = sum_embeddings / (sum_mask + 1e-9)  # Avoid division by zero
+        
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Pooled embeddings shape: {pooled.shape}")
+        
+        # Apply projection if needed
+        if self.has_projection:
+            output = self.projection(pooled)
+        else:
+            output = pooled
+        
+        # Normalize output
+        output = F.normalize(output, dim=-1)
+        
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Tower output shape: {output.shape}")
+        
+        return output
+
+
 class TwoTower(nn.Module):
     """
     Two-Tower model consisting of separate query and document encoder towers.
@@ -141,10 +215,19 @@ class TwoTower(nn.Module):
         else:
             return query_vector
 
+    def encode_query(self, query_input):
+        """Encode a query input"""
+        return self.query_tower(query_input)
+    
+    def encode_document(self, document_input):
+        """Encode a document input"""
+        return self.document_tower(document_input)
+
 
 # Registry of available tower architectures
 TOWER_REGISTRY = {
     "mean": MeanPoolingTower,
+    "avg_pool": AveragePoolingTower,
     # Add more tower architectures here
 }
 
@@ -165,7 +248,7 @@ def build_tower(name: str, embedding: BaseEmbedding, **kwargs) -> BaseTower:
     
     return TOWER_REGISTRY[name](embedding=embedding, **kwargs)
 
-def build_two_tower(tower_name: str, embedding: BaseEmbedding, hidden_dim: int, tied_weights: bool = False) -> TwoTower:
+def build_two_tower(tower_name: str, embedding: BaseEmbedding, hidden_dim: int, tied_weights: bool = False, **kwargs) -> TwoTower:
     """
     Build a complete two-tower model
     
@@ -174,15 +257,16 @@ def build_two_tower(tower_name: str, embedding: BaseEmbedding, hidden_dim: int, 
         embedding: Embedding layer to use
         hidden_dim: Hidden dimension size for the towers
         tied_weights: Whether to use the same tower for both queries and documents
+        **kwargs: Additional arguments passed to the tower constructor
     
     Returns:
         An instance of TwoTower
     """
-    query_tower = build_tower(tower_name, embedding, hidden_dim=hidden_dim)
+    query_tower = build_tower(tower_name, embedding, hidden_dim=hidden_dim, **kwargs)
     
     if tied_weights:
         document_tower = None
     else:
-        document_tower = build_tower(tower_name, embedding, hidden_dim=hidden_dim)
+        document_tower = build_tower(tower_name, embedding, hidden_dim=hidden_dim, **kwargs)
     
     return TwoTower(query_tower, document_tower, tied_weights=tied_weights) 

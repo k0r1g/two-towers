@@ -84,10 +84,82 @@ class FrozenWord2Vec(BaseEmbedding):
         return self.embedding(input_ids)
 
 
+class GloVeEmbedding(BaseEmbedding):
+    """
+    Loads pre-trained GloVe word vectors from gensim-data and provides embedding functionality.
+    Can be set to frozen (non-trainable) or fine-tunable.
+    """
+    def __init__(
+        self, 
+        vocab_size: int, 
+        embedding_dim: int = None, 
+        model_name: str = 'glove-wiki-gigaword-50', 
+        trainable: bool = False, 
+        padding_idx: int = 0
+    ):
+        try:
+            import gensim.downloader as api
+            import numpy as np
+        except ImportError:
+            raise ImportError("Please install gensim to use GloVeEmbedding: pip install gensim")
+        
+        logger.info(f"Loading GloVe word vectors: {model_name}")
+        self.model = api.load(model_name)
+        
+        # Set embedding dimension based on loaded model if not specified
+        if embedding_dim is None:
+            embedding_dim = self.model.vector_size
+        elif embedding_dim != self.model.vector_size:
+            logger.warning(f"Specified embedding_dim ({embedding_dim}) doesn't match GloVe model dimension ({self.model.vector_size})")
+            
+        super().__init__(vocab_size, embedding_dim, padding_idx)
+        
+        # Create embedding layer
+        self.embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx=padding_idx)
+        
+        # Initialize embedding weights for known words
+        self.init_embeddings()
+        
+        # Set embeddings as trainable or frozen
+        self.embedding.weight.requires_grad = trainable
+        
+        logger.info(f"Loaded GloVe embeddings with dimension {embedding_dim} (trainable: {trainable})")
+        self.log_params()
+        
+    def init_embeddings(self):
+        """Initialize embedding weights with GloVe vectors for known words"""
+        # Initialize with zeros
+        weight = torch.zeros_like(self.embedding.weight)
+        
+        # The implementation assumes that vocabulary mapping is done separately
+        # Here we just initialize the first N words in the vocabulary
+        # A more complete implementation would use the tokenizer's vocabulary mapping
+        for i in range(min(len(self.model.index_to_key), self.vocab_size)):
+            if i > 0:  # Skip padding token at index 0
+                word = self.model.index_to_key[i-1]
+                vector = torch.tensor(self.model[word], dtype=weight.dtype)
+                weight[i] = vector
+        
+        # Set the embeddings
+        with torch.no_grad():
+            self.embedding.weight.copy_(weight)
+            logger.info(f"Initialized embedding weights with GloVe vectors")
+    
+    def forward(self, input_ids):
+        """
+        Args:
+            input_ids: Token IDs tensor of shape (batch_size, sequence_length)
+        Returns:
+            Embedded representation of shape (batch_size, sequence_length, embedding_dim)
+        """
+        return self.embedding(input_ids)
+
+
 # Registry of available embeddings
 REGISTRY = {
     "lookup": LookupEmbedding,
     "word2vec": FrozenWord2Vec,
+    "glove": GloVeEmbedding,
     # Add more embedding types here
 }
 
