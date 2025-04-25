@@ -6,6 +6,11 @@
 extends: default_config.yml
 
 #==============================================================================
+# Hardware Configuration
+#==============================================================================
+device: cpu                                   # Use CPU instead of CUDA
+
+#==============================================================================
 # Tokenizer Configuration
 #==============================================================================
 tokeniser:
@@ -22,7 +27,7 @@ embedding:
 
 # Encoder configuration
 encoder:
-  arch: cnn                                   # CNN-based architecture
+  arch: mean                                  # Mean pooling architecture (available options: mean, avg_pool)
   hidden_dim: 128                             # Hidden layer dimension size
   tied_weights: true                          # Share weights between query and doc towers
   
