@@ -12,11 +12,13 @@ Welcome to the documentation for the Two-Tower Retrieval Model. This documentati
 - [Testing](testing.md): Testing framework and procedures
 - [GPU Setup](gpu-setup.md): Setting up GPU environment for training
 - [Docker Setup](docker-setup.md): Containerized deployment for inference
+- [HuggingFace Hub Integration](huggingface.md): Sharing models via HuggingFace Hub
 
 ## Quick Links
 
 - [GitHub Repository](https://github.com/yourusername/two-towers)
 - [Main README](../../README.md)
+- [HuggingFace Hub](https://huggingface.co/models?search=mlx7-two-tower)
 
 ## Overview
 
@@ -31,6 +33,7 @@ The Two-Tower retrieval model is a dual encoder architecture for semantic search
 - **Unified Search Interface**: Common interface for different search implementations
 - **CLI Tools**: Command-line tools for building indices and retrieving documents
 - **GPU Acceleration**: Support for CUDA-enabled training and inference
+- **HuggingFace Integration**: Share and load models from HuggingFace Hub
 
 ## Getting Started
 
@@ -43,6 +46,10 @@ The Two-Tower model uses a hierarchical YAML-based configuration system. For det
 ## Inference
 
 For information about using the trained model for search and retrieval tasks, see the [Inference documentation](inference.md).
+
+## Sharing Models
+
+The project supports sharing models via the HuggingFace Hub. To learn how to share your trained models, see the [HuggingFace Hub Integration documentation](huggingface.md).
 
 ## Contributing
 
