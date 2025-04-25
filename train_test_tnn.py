@@ -212,7 +212,7 @@ def train_validate_test():
     # Load dataset and embeddings
     from huggingface_hub import hf_hub_download
     import torch
-
+    #download the skip_gram_model.pt and word_to_id.pt from huggingface hub
     repo_id = "dtian09/MS_MARCO"
     skip_gram_path = hf_hub_download(repo_id=repo_id, filename="skip_gram_model.pt",  repo_type="dataset" )
     word_to_id_path = hf_hub_download(repo_id=repo_id, filename="word_to_id.pt",  repo_type="dataset" )
@@ -268,7 +268,7 @@ def train_validate_test():
         # Early stopping check
         if val_acc > best_val_acc:
             best_val_acc = val_acc
-            torch.save(model.state_dict(), "best_two_tower_model.pt")
+            torch.save(model, "best_two_tower_model.pt")
             wandb.save("best_two_tower_model.pt")
             patience_counter = 0
         else:
@@ -278,7 +278,7 @@ def train_validate_test():
                 break
     # Load best model for final evaluation
     print("evaluate model on test set")
-    model.load_state_dict(torch.load("best_two_tower_model.pt"))
+    model.eval()
     test_data = load_dataset("microsoft/ms_marco", "v1.1", split="test")
     test_dataset = TripletDataset(test_data, word_to_id, embedding_matrix, config.max_query_len, config.max_passage_len)
     test_loader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=False, collate_fn=collate_batch, pin_memory=True)

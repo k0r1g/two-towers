@@ -60,7 +60,6 @@ all_embeddings = [
 ]
 
 print("Encoding in batches...")
-model.eval()
 with torch.no_grad():
     for i in range(0, len(all_embeddings), BATCH_SIZE):
         batch = all_embeddings[i:i + BATCH_SIZE]
