@@ -1,0 +1,44 @@
+# MS MARCO GPU Training Configuration
+# 
+# Configuration for a baseline run on MS MARCO dataset optimized for GPU training.
+# Uses character-level tokenization with mean pooling encoder.
+
+extends: default_config.yml
+
+#==============================================================================
+# Data and Resources
+#==============================================================================
+data: data/processed/classic_triplets.parquet  # Existing training data
+device: cuda                                   # Use CUDA for training
+
+#==============================================================================
+# Tokenizer Configuration
+#==============================================================================
+tokeniser:
+  type: char                                  # Character-level tokenization
+  max_len: 64                                 # Maximum sequence length
+
+#==============================================================================
+# Model Architecture
+#==============================================================================
+# Embedding configuration
+embedding:
+  type: lookup                                # Simple lookup table embeddings
+  emb_dim: 64                                 # Dimension of embedding vectors
+
+# Encoder configuration
+encoder:
+  arch: mean                                  # Mean pooling architecture
+  hidden_dim: 128                             # Hidden layer dimension size
+
+#==============================================================================
+# Training Parameters
+#==============================================================================
+batch: 512                                    # Training batch size
+epochs: 2                                     # Short run to finish before 15:00
+lr: 1e-3                                      # Learning rate
+
+#==============================================================================
+# Logging and Metrics
+#==============================================================================
+wandb_group: "baseline_gpu"                   # Group name for W&B experiments 
