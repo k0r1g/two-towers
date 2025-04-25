@@ -36,7 +36,7 @@ encoder:
 #==============================================================================
 batch: 512                                    # Training batch size
 epochs: 2                                     # Short run to finish before 15:00
-lr: 1e-3                                      # Learning rate
+lr: 0.001                                      # Learning rate
 
 #==============================================================================
 # Logging and Metrics

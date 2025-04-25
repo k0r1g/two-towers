@@ -1,0 +1,24 @@
+# Configuration for testing MS MARCO pipeline
+extends: configs/char_tower.yml
+
+# Dataset path will be overridden by train_with_msmarco.py
+data: data/processed/train_classic_sample_10.parquet
+
+# Training parameters (minimal for quick testing)
+epochs: 1
+batch_size: 32
+device: cpu  # Use CPU for testing
+learning_rate: 0.001  # Ensure this is specified as a float
+
+# HuggingFace Hub settings
+huggingface:
+  push_to_hub: true
+  repo_id: test-msmarco-temp
+  private: true
+
+# Weights & Biases settings
+use_wandb: true
+wandb:
+  run_name: test_msmarco
+  project: two-tower-retrieval
+  tags: ["test", "minimal", "msmarco"] 
