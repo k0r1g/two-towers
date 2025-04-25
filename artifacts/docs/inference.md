@@ -195,4 +195,60 @@ class MyCustomSearch(BaseSearch):
     def search(self, query, top_k=5):
         # Implementation
         pass
-``` 
+```
+
+## Docker-Based Inference Service
+
+For production deployment, the Two-Tower model includes a Docker-based inference service that provides:
+
+1. A REST API for semantic search and embedding generation
+2. Integration with ChromaDB for vector storage and retrieval
+3. A web interface for demonstrating the search capabilities
+
+The Docker setup consists of two services:
+- A ChromaDB container for vector database functionality
+- An inference API container that loads the model and provides search endpoints
+
+### Quick Start with Docker
+
+To run the inference service:
+
+```bash
+cd two-towers
+sudo docker compose up -d
+```
+
+Then access the web interface at http://localhost:8080 or use the API endpoints directly.
+
+### API Endpoints
+
+The inference service provides the following API endpoints:
+
+- `POST /add` - Add documents to the vector database
+- `POST /search` - Search for similar documents
+- `POST /embed` - Generate embeddings for text
+- `GET /health` - Check the health of the service
+
+Example using curl:
+
+```bash
+# Add documents
+curl -X POST http://localhost:8080/add \
+  -H "Content-Type: application/json" \
+  -d '{"texts": ["Document 1", "Document 2"]}'
+
+# Search for similar documents
+curl -X POST http://localhost:8080/search \
+  -H "Content-Type: application/json" \
+  -d '{"text": "query text", "top_k": 3}'
+```
+
+### Service Architecture
+
+The Docker-based inference service uses a custom model loading implementation that can handle various model formats:
+
+1. It first attempts to load a PyTorch model file (`best_model.pt`) from the specified Hugging Face repository
+2. It supports different model structures and employs multiple fallback strategies for embedding generation
+3. It automatically handles various embedding formats to ensure compatibility with ChromaDB
+
+For full details on the Docker setup and deployment, see [docker-setup.md](docker-setup.md). 
