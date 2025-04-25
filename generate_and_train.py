@@ -17,6 +17,7 @@ import subprocess
 import os
 from pathlib import Path
 import logging
+import yaml
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -31,6 +32,7 @@ def main():
     parser.add_argument('--skip_generate', action='store_true', help='Skip data generation step')
     parser.add_argument('--skip_training', action='store_true', help='Skip model training step')
     parser.add_argument('--wandb', action='store_true', help='Enable Weights & Biases logging')
+    parser.add_argument('--config', default='configs/char_tower.yml', help='Base config file to use')
     args = parser.parse_args()
 
     # Define file paths
@@ -80,21 +82,40 @@ def main():
     else:
         logger.info("Skipping data generation steps...")
 
-    # Step 4: Train the model
+    # Step 4: Create a temporary config file with synthetic data path
     if not args.skip_training:
+        logger.info("Creating temporary config for synthetic data...")
+        # Load the base config
+        with open(args.config, 'r') as f:
+            config = yaml.safe_load(f)
+        
+        # Override with synthetic data path and command line arguments
+        config['data'] = str(triplets_parquet)
+        config['epochs'] = args.epochs
+        config['batch_size'] = args.batch_size
+        config['use_wandb'] = args.wandb
+        
+        # Save to a temporary config file
+        temp_config_path = "configs/temp_synthetic_config.yml"
+        with open(temp_config_path, 'w') as f:
+            yaml.dump(config, f, default_flow_style=False)
+        
         logger.info("Training the two-tower model...")
         train_cmd = [
-            "python", "two_tower_mini.py",
-            "--data", str(triplets_parquet),
-            "--epochs", str(args.epochs),
-            "--batch_size", str(args.batch_size)
+            "python", "train.py",
+            "--config", temp_config_path
         ]
         
         if args.wandb:
-            train_cmd.append("--wandb")
+            train_cmd.append("--use_wandb")
         
         logger.info(f"Running command: {' '.join(train_cmd)}")
-        subprocess.run(train_cmd, check=True)
+        try:
+            subprocess.run(train_cmd, check=True)
+        finally:
+            # Clean up temporary config
+            if os.path.exists(temp_config_path):
+                os.remove(temp_config_path)
     else:
         logger.info("Skipping model training step...")
     

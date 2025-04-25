@@ -43,6 +43,14 @@ optimizer:
   lr: 0.001                                   # Learning rate
 
 #==============================================================================
+# Dataset Configuration
+#==============================================================================
+positive_selector: classic                    # Use classic positive selection strategy
+negative_sampler:
+  type: random_inter                          # Random inter-query negative sampling
+negatives_per_pos: 5                          # Number of negative examples per positive
+
+#==============================================================================
 # Logging and Metrics
 #==============================================================================
 use_wandb: true                               # Enable Weights & Biases logging
