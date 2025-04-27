@@ -5,9 +5,8 @@ def tokenizer(text,top_k='all_words'):
    # remove punctuation and non alphabetic characters
    remove_punctuation = re.sub(r'[^\w\s]', '', text)
    lower_case_words = remove_punctuation.lower()
-   words = lower_case_words.split(' ')
+   words = lower_case_words.split()
 
-   # print count of words in split_words_by_whitespace
    print(f"Number of words before filtering: {len(words)}")
 
    # get word counts
